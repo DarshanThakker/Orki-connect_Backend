@@ -1,0 +1,130 @@
+// Prisma schema file
+generator client {
+  provider = "prisma-client-js"
+  engineType = "client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Chain {
+  ETHEREUM
+  POLYGON
+  SOLANA
+}
+
+enum ComplianceMode {
+  LITE
+  VALIDATE
+}
+
+enum ConnectionType {
+  WALLET
+  EXCHANGE
+}
+
+enum SessionStatus {
+  CREATED
+  ACTIVE
+  COMPLETED
+  FAILED
+  EXPIRED
+  EXTENDED_MONITORING
+}
+
+enum WebhookEvent {
+  CONNECTION_APPROVED
+  CONNECTION_FLAGGED
+  CONNECTION_IDENTITY_MISMATCH
+  DEPOSITS_PENDING
+  DEPOSITS_SUBMITTED
+  DEPOSITS_DETECTED
+  DEPOSITS_CONFIRMED
+  DEPOSITS_FAILED
+  DEPOSITS_ABANDONED
+  DEPOSITS_UNEXPECTED
+  WITHDRAWAL_SUBMITTED
+  WITHDRAWAL_CONFIRMED
+  WITHDRAWAL_FAILED
+}
+
+model Organization {
+  id                String         @id @default(uuid())
+  organization_id   String         @unique
+  client_id         String         @unique
+  client_secret_hash String
+  webhook_url       String?
+  config            Json           // Stores DEFAULT_CONFIG overrides
+  created_at        DateTime       @default(now())
+  updated_at        DateTime       @updatedAt
+  sessions          Session[]
+  webhook_logs      WebhookLog[]
+  confirmed_deposits ConfirmedDeposit[]
+}
+
+model Session {
+  id              String         @id @default(uuid())
+  session_id      String         @unique
+  organization    Organization   @relation(fields: [organization_id], references: [organization_id])
+  organization_id String
+  user_id         String
+  deposit_address String
+  network         Chain
+  token           String
+  mode            ComplianceMode
+  kyc_name        String?
+  connection_type ConnectionType
+  status          SessionStatus  @default(CREATED)
+  tx_hash         String?
+  connection_id   String?
+  exchange        String?
+  wallet_address  String?
+  risk_flag       Json?
+  created_at      DateTime       @default(now())
+  expires_at      DateTime
+  updated_at      DateTime       @updatedAt
+
+  @@index([organization_id])
+  @@index([user_id])
+}
+
+model DepositAddress {
+  id              String   @id @default(uuid())
+  session_id      String   @unique
+  address         String
+  network         Chain
+  registered_at   DateTime @default(now())
+
+  @@index([address, network])
+}
+
+model WebhookLog {
+  id              String   @id @default(uuid())
+  organization    Organization @relation(fields: [organization_id], references: [organization_id])
+  organization_id String
+  session_id      String
+  event           String
+  idempotency_key String   @unique
+  payload         Json
+  status          String   // delivered, failed, dead_letter
+  http_status     Int?
+  response_time_ms Int?
+  error           String?
+  attempt         Int      @default(1)
+  created_at      DateTime @default(now())
+
+  @@index([organization_id])
+  @@index([session_id])
+}
+
+model ConfirmedDeposit {
+  id              String   @id @default(uuid())
+  organization    Organization @relation(fields: [organization_id], references: [organization_id])
+  organization_id String
+  user_id         String
+  amount          Decimal  @db.Decimal(20, 8)
+  timestamp       DateTime @default(now())
+
+  @@index([organization_id, user_id])
+}
