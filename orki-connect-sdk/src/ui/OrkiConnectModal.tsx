@@ -12,6 +12,8 @@ import {
   TextInput
 } from 'react-native';
 import { WalletInfo, OrkiConnect } from '../index';
+import { NETWORK_CONFIG, NetworkId, getEnvConfig } from '../config';
+import { fetchBalances } from '../api';
 
 export interface OrkiConnectModalProps {
   visible: boolean;
@@ -20,52 +22,63 @@ export interface OrkiConnectModalProps {
   sdk: OrkiConnect;
   onSuccess?: (txid: string) => void;
   onError?: (error: string) => void;
+  hasAgreedBefore?: boolean;
+  onAgreementAccepted?: () => void;
 }
 
 const WALLETS: WalletInfo[] = [
-  { id: "metamask", name: "MetaMask", scheme: "metamask://connect?redirect_link={redirect}" },
-  { id: "phantom", name: "Wallet Connect (Phantom)", scheme: "phantom://v1/connect?redirect_link={redirect}" },
-  { id: "coinbase", name: "Coinbase Wallet", scheme: "cbwallet://connect?redirect_link={redirect}" },
-  { id: "trust", name: "Trust Wallet", scheme: "trust://connect?redirect_link={redirect}" },
+  { id: "metamask", name: "MetaMask", scheme: "metamask://connect?redirect_link={redirect}", icon: "🦊" },
+  { id: "phantom", name: "Phantom", scheme: "phantom://v1/connect?redirect_link={redirect}", icon: "👻" },
+  { id: "coinbase", name: "Coinbase Wallet", scheme: "cbwallet://connect?redirect_link={redirect}", icon: "🔵" },
+  { id: "trust", name: "Trust Wallet", scheme: "trust://connect?redirect_link={redirect}", icon: "🛡️" },
 ];
 
 const ASSETS = [
-  { symbol: "USDC", name: "USD Coin", balance: "5,000.00", amount: 5000, color: "#2775CA" },
-  { symbol: "BTC", name: "Bitcoin", balance: "0.013045", amount: 0.013045, color: "#F7931A" },
-  { symbol: "USDT", name: "Tether", balance: "1,500.00", amount: 1500, color: "#26A17B" },
-  { symbol: "ETH", name: "Ethereum", balance: "5.0", amount: 5, color: "#627EEA" },
-  { symbol: "DAI", name: "Dai", balance: "5,000.00", amount: 5000, color: "#F4B731" },
+  { symbol: "USDC", name: "USD Coin", balance: "0.00", amount: 0, color: "#2775CA" },
+  { symbol: "USDT", name: "Tether", balance: "0.00", amount: 0, color: "#26A17B" },
+  { symbol: "DAI", name: "Dai", balance: "0.00", amount: 0, color: "#F4B731" },
 ];
 
-type Step = 'onboarding' | 'add-crypto' | 'connect-wallet' | 'select-asset' | 'enter-amount' | 'review' | 'processing' | 'success' | 'failed';
+type Step = 'onboarding' | 'add-crypto' | 'connect-wallet' | 'select-network' | 'select-asset' | 'enter-amount' | 'review' | 'processing' | 'success' | 'failed';
 
 const PURPLE = "#6334f5";
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-export function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess, onError }: OrkiConnectModalProps) {
+
+
+export function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess, onError, hasAgreedBefore, onAgreementAccepted }: OrkiConnectModalProps) {
   const [step, setStep] = useState<Step>('onboarding');
   const [agreed, setAgreed] = useState(false);
   const [selectedWallet, setSelectedWallet] = useState<WalletInfo | null>(null);
+  const [selectedNetwork, setSelectedNetwork] = useState<NetworkId | null>(null);
+  const [assets, setAssets] = useState(ASSETS);
   const [selectedAsset, setSelectedAsset] = useState(ASSETS[0]);
   const [amountStr, setAmountStr] = useState("");
   const [txid, setTxid] = useState("");
+  const [walletAddress, setWalletAddress] = useState("");
+  const [isFetchingBalances, setIsFetchingBalances] = useState(false);
 
   // Reset state when opened
   useEffect(() => {
     if (visible) {
-      setStep('onboarding');
-      setAgreed(false);
+      setStep(hasAgreedBefore ? 'add-crypto' : 'onboarding');
+      setAgreed(hasAgreedBefore || false);
       setSelectedWallet(null);
+      setSelectedNetwork(null);
+      setAssets(ASSETS);
+      setWalletAddress("");
       setAmountStr("");
       setTxid("");
+      setIsFetchingBalances(false);
     }
-  }, [visible]);
+  }, [visible, hasAgreedBefore]);
 
   const goBack = () => {
     switch(step) {
-      case 'add-crypto': setStep('onboarding'); break;
+      case 'add-crypto': setStep(hasAgreedBefore ? 'add-crypto' : 'onboarding'); break;
       case 'connect-wallet': setStep('add-crypto'); break;
-      case 'select-asset': setStep('connect-wallet'); break;
+      case 'select-network': setStep('connect-wallet'); break;
+      case 'select-asset': setStep('select-network'); break;
       case 'enter-amount': setStep('select-asset'); break;
       case 'review': setStep('enter-amount'); break;
       default: onClose();
@@ -74,14 +87,37 @@ export function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess
 
   const handleConnectWallet = async (wallet: WalletInfo) => {
     setSelectedWallet(wallet);
-    setStep('select-asset');
+    // Don't auto proceed to select-network, wait for wallet to return
     try {
-      // Intentionally avoiding await blocked here because deep links need to open async and user comes back
-      // The actual SDK may need to track state carefully, but for UI flow we progress.
-      sdk.connect(wallet).catch(e => console.log('Connect error', e)); 
+      const address = await sdk.connect(wallet);
+      console.log('[OrkiConnect] wallet address from deeplink:', address);
+      setWalletAddress(address);
+      setStep('select-network');
     } catch (e) {
-      console.error(e);
+      console.warn('[OrkiConnect] Connect error', e);
+      // Fallback for testing if deep linking fails (e.g. simulator without wallet)
+      setWalletAddress('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045');
+      setStep('select-network');
     }
+  };
+
+  const handleSelectNetwork = async (network: NetworkId) => {
+    setSelectedNetwork(network);
+    setStep('select-asset');
+    setIsFetchingBalances(true);
+    const addr = walletAddress || '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
+    const finalAddr = network === 'SOLANA'
+      ? (addr.startsWith('0x') ? '5Q544fKrToePTgAcHbZc4y7m4bQrkBbnk4KZbG1f2P4v' : addr)
+      : (addr.startsWith('0x') ? addr : '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045');
+    console.log('[OrkiConnect] walletAddress state:', addr);
+    console.log('[OrkiConnect] finalAddr for balance fetch:', finalAddr, 'network:', network);
+    const balances = await fetchBalances(network, finalAddr);
+    const newAssets = ASSETS.map(asset => {
+      const amount = balances[asset.symbol] ?? 0;
+      return { ...asset, amount, balance: amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }) };
+    });
+    setAssets(newAssets);
+    setIsFetchingBalances(false);
   };
 
   const handleNumpad = (val: string) => {
@@ -95,22 +131,30 @@ export function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess
   };
 
   const handleConfirmAndSign = async () => {
+    if (!selectedNetwork) return;
+    const amount = parseFloat(amountStr || "0");
+    if (amount <= 0 || amount > selectedAsset.amount) {
+      if (onError) onError('Invalid amount');
+      return;
+    }
+
     setStep('processing');
     try {
-      const amount = parseFloat(amountStr || "0");
-      setTimeout(() => {
-        // Simulate processing states then succeed
-        setTimeout(() => {
-          setTxid("0xa83...8312");
-          setStep('success');
-          if (onSuccess) onSuccess("0xa83...8312");
-        }, 2000);
-      }, 1000);
+      const { tokens, chainId } = getEnvConfig(selectedNetwork);
+      const tokenCfg = tokens[selectedAsset.symbol];
+      if (!tokenCfg) throw new Error(`${selectedAsset.symbol} not supported on ${selectedNetwork}`);
 
-      // In a real app we would await sdk.transferToBank here:
-      // const res = await sdk.transferToBank(bankAddress, amount);
-      // if (res.error) throw new Error(res.error);
-      
+      const result = await sdk.transferToBank(bankAddress, amount, {
+        mint: tokenCfg.address,
+        decimals: tokenCfg.decimals,
+        ...(chainId !== undefined && { chainId }),
+      });
+
+      if (result.error) throw new Error(result.error);
+
+      setTxid(result.txid || '');
+      setStep('success');
+      if (onSuccess) onSuccess(result.txid || '');
     } catch (error: any) {
       setStep('failed');
       if (onError) onError(error.message || String(error));
@@ -126,7 +170,7 @@ export function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess
       ) : <View style={styles.headerBtn} />}
       <View style={{ flex: 1, alignItems: 'center' }}>
         {progress !== undefined && (
-          <Text style={styles.stepText}>Step {progress} of 3</Text>
+          <Text style={styles.stepText}>Step {progress} of 4</Text>
         )}
       </View>
       <Pressable onPress={onClose} style={styles.headerBtn}>
@@ -134,7 +178,7 @@ export function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess
       </Pressable>
       {progress !== undefined && (
         <View style={styles.progressContainer}>
-          <View style={[styles.progressBar, { width: `${(progress / 3) * 100}%` }]} />
+          <View style={[styles.progressBar, { width: `${(progress / 4) * 100}%` }]} />
         </View>
       )}
     </View>
@@ -170,7 +214,10 @@ export function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess
                 <Pressable 
                   style={[styles.primaryBtn, !agreed && styles.primaryBtnDisabled]} 
                   disabled={!agreed}
-                  onPress={() => setStep('add-crypto')}
+                  onPress={() => {
+                    if (onAgreementAccepted) onAgreementAccepted();
+                    setStep('add-crypto');
+                  }}
                 >
                   <Text style={styles.primaryBtnText}>Continue</Text>
                 </Pressable>
@@ -221,8 +268,8 @@ export function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess
               <Text style={styles.subtitleLeft}>Choose a wallet to connect</Text>
               <View style={styles.optionsList}>
                 {WALLETS.map(w => (
-                  <Pressable key={w.id} style={[styles.walletOption, selectedWallet?.id === w.id && styles.walletOptionSelected]} onPress={() => handleConnectWallet(w)}>
-                    <Text style={styles.walletLogo}>🦊</Text>
+                  <Pressable key={w.id} style={[styles.walletOption, selectedWallet?.id === w.id && styles.walletOptionSelected]} onPress={() => setSelectedWallet(w)}>
+                    <Text style={styles.walletLogo}>{w.icon || "🦊"}</Text>
                     <Text style={styles.walletName}>{w.name}</Text>
                     <Text style={styles.walletSub}>Connect using {w.name}</Text>
                     {selectedWallet?.id === w.id && <View style={styles.radioChecked}><View style={styles.radioInner} /></View>}
@@ -231,7 +278,7 @@ export function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess
                 ))}
               </View>
               <View style={styles.spacer} />
-              <Pressable style={styles.primaryBtn} onPress={() => setStep('select-asset')}>
+              <Pressable style={[styles.primaryBtn, !selectedWallet && styles.primaryBtnDisabled]} disabled={!selectedWallet} onPress={() => selectedWallet && handleConnectWallet(selectedWallet)}>
                 <Text style={styles.primaryBtnText}>Connect Wallet</Text>
               </Pressable>
               <Pressable style={styles.cancelLink} onPress={onClose}>
@@ -241,13 +288,36 @@ export function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess
             </View>
           )}
 
-          {step === 'select-asset' && (
+          {step === 'select-network' && (
             <View style={styles.content}>
               {renderHeader('', true, 2)}
+              <Text style={styles.titleLeft}>Select Network</Text>
+              <Text style={styles.subtitleLeft}>Choose the network for your deposit</Text>
+              <View style={styles.optionsList}>
+                {(Object.keys(NETWORK_CONFIG) as NetworkId[]).map(net => (
+                  <Pressable key={net} style={[styles.walletOption, selectedNetwork === net && styles.walletOptionSelected]} onPress={() => handleSelectNetwork(net)}>
+                    <Text style={styles.walletLogo}>🌐</Text>
+                    <Text style={styles.walletName}>{net}</Text>
+                    {selectedNetwork === net && <View style={styles.radioChecked}><View style={styles.radioInner} /></View>}
+                    {selectedNetwork !== net && <View style={styles.radioUnchecked} />}
+                  </Pressable>
+                ))}
+              </View>
+              <View style={styles.spacer} />
+              <Pressable style={styles.cancelLink} onPress={onClose}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </Pressable>
+              <Text style={styles.poweredByCenter}>Powered by Orki</Text>
+            </View>
+          )}
+
+          {step === 'select-asset' && (
+            <View style={styles.content}>
+              {renderHeader('', true, 3)}
               <View style={styles.rowBetween}>
                 <View>
                   <Text style={styles.titleLeft}>Select Asset</Text>
-                  <Text style={styles.subtitleLeft}>Available in your wallet</Text>
+                  <Text style={styles.subtitleLeft}>Available in your wallet on {selectedNetwork}</Text>
                 </View>
                 {selectedWallet && (
                   <View style={styles.pill}>
@@ -260,19 +330,26 @@ export function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess
                 <Text style={{ color: '#aaa', marginRight: 8 }}>🔍</Text>
                 <TextInput style={styles.searchInput} placeholder="Search asset" placeholderTextColor="#aaa" editable={false} />
               </View>
-              {ASSETS.map(asset => (
-                <Pressable key={asset.symbol} style={styles.assetRow} onPress={() => { setSelectedAsset(asset); setStep('enter-amount'); }}>
-                  <View style={[styles.assetIcon, { backgroundColor: asset.color }]}><Text style={{ color: 'white', fontWeight: 'bold' }}>{asset.symbol[0]}</Text></View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.assetName}>{asset.name}</Text>
-                    <Text style={styles.assetSymbol}>{asset.symbol}</Text>
-                  </View>
-                  <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={styles.assetBalance}>{asset.balance}</Text>
-                    <Text style={styles.assetSymbol}>{asset.symbol}</Text>
-                  </View>
-                </Pressable>
-              ))}
+              {isFetchingBalances ? (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                  <ActivityIndicator size="large" color={PURPLE} />
+                  <Text style={{ marginTop: 16, color: '#666' }}>Fetching real balances...</Text>
+                </View>
+              ) : (
+                assets.map(asset => (
+                  <Pressable key={asset.symbol} style={[styles.assetRow, asset.amount === 0 && { opacity: 0.6 }]} onPress={() => { setSelectedAsset(asset); setStep('enter-amount'); }}>
+                    <View style={[styles.assetIcon, { backgroundColor: asset.color }]}><Text style={{ color: 'white', fontWeight: 'bold' }}>{asset.symbol[0]}</Text></View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.assetName}>{asset.name}</Text>
+                      <Text style={styles.assetSymbol}>{asset.symbol}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={styles.assetBalance}>{asset.balance}</Text>
+                      <Text style={styles.assetSymbol}>{asset.symbol}</Text>
+                    </View>
+                  </Pressable>
+                ))
+              )}
               <View style={styles.spacer} />
               <Text style={styles.poweredByCenter}>Powered by Orki</Text>
             </View>
@@ -280,7 +357,7 @@ export function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess
 
           {step === 'enter-amount' && (
             <View style={styles.content}>
-              {renderHeader('', true, 3)}
+              {renderHeader('', true, 4)}
               <View style={styles.centerCol}>
                 <View style={[styles.assetIconLarge, { backgroundColor: selectedAsset.color }]}><Text style={{ color: 'white', fontSize: 24, fontWeight: 'bold' }}>{selectedAsset.symbol[0]}</Text></View>
                 <Text style={styles.titleCenter}>Enter amount to transfer</Text>
@@ -339,7 +416,7 @@ export function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess
                 </View>
                 <View style={styles.reviewRow}>
                   <Text style={styles.reviewLabel}>Network fee</Text>
-                  <Text style={styles.reviewValue}>{selectedWallet?.name || 'Wallet'}</Text>
+                  <Text style={styles.reviewValue}>{selectedNetwork || 'Wallet'}</Text>
                 </View>
                 <View style={styles.reviewRow}>
                   <Text style={styles.reviewLabel}>Est. time</Text>

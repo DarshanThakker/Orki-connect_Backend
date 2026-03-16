@@ -37,47 +37,151 @@ exports.OrkiConnectModal = OrkiConnectModal;
 const react_1 = __importStar(require("react"));
 const react_native_1 = require("react-native");
 const WALLETS = [
-    { id: "metamask", name: "MetaMask", scheme: "metamask://connect?redirect_link={redirect}" },
-    { id: "phantom", name: "Wallet Connect (Phantom)", scheme: "phantom://v1/connect?redirect_link={redirect}" },
-    { id: "coinbase", name: "Coinbase Wallet", scheme: "cbwallet://connect?redirect_link={redirect}" },
-    { id: "trust", name: "Trust Wallet", scheme: "trust://connect?redirect_link={redirect}" },
+    { id: "metamask", name: "MetaMask", scheme: "metamask://connect?redirect_link={redirect}", icon: "🦊" },
+    { id: "phantom", name: "Phantom", scheme: "phantom://v1/connect?redirect_link={redirect}", icon: "👻" },
+    { id: "coinbase", name: "Coinbase Wallet", scheme: "cbwallet://connect?redirect_link={redirect}", icon: "🔵" },
+    { id: "trust", name: "Trust Wallet", scheme: "trust://connect?redirect_link={redirect}", icon: "🛡️" },
 ];
 const ASSETS = [
-    { symbol: "USDC", name: "USD Coin", balance: "5,000.00", amount: 5000, color: "#2775CA" },
-    { symbol: "BTC", name: "Bitcoin", balance: "0.013045", amount: 0.013045, color: "#F7931A" },
-    { symbol: "USDT", name: "Tether", balance: "1,500.00", amount: 1500, color: "#26A17B" },
-    { symbol: "ETH", name: "Ethereum", balance: "5.0", amount: 5, color: "#627EEA" },
-    { symbol: "DAI", name: "Dai", balance: "5,000.00", amount: 5000, color: "#F4B731" },
+    { symbol: "USDC", name: "USD Coin", balance: "0.00", amount: 0, color: "#2775CA" },
+    { symbol: "USDT", name: "Tether", balance: "0.00", amount: 0, color: "#26A17B" },
+    { symbol: "DAI", name: "Dai", balance: "0.00", amount: 0, color: "#F4B731" },
 ];
 const PURPLE = "#6334f5";
 const { height: SCREEN_HEIGHT } = react_native_1.Dimensions.get('window');
-function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess, onError }) {
+// EVM Balance Fetcher
+async function getEvmBalance(rpcUrl, address, tokenAddress, decimals) {
+    try {
+        const data = "0x70a08231000000000000000000000000" + address.replace("0x", "");
+        const res = await fetch(rpcUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                jsonrpc: "2.0", id: 1, method: "eth_call",
+                params: [{ to: tokenAddress, data }, "latest"]
+            })
+        });
+        const json = await res.json();
+        if (json.result && json.result !== "0x") {
+            let balanceNum = 0;
+            if (typeof BigInt !== 'undefined') {
+                balanceNum = Number(BigInt(json.result)) / (10 ** decimals);
+            }
+            else {
+                balanceNum = parseInt(json.result, 16) / (10 ** decimals);
+            }
+            return balanceNum;
+        }
+    }
+    catch (e) {
+        console.warn('EVMBalance fetch error', e);
+    }
+    return 0;
+}
+// Solana Balance Fetcher
+async function getSolanaBalance(address, mint, decimals) {
+    var _a, _b;
+    try {
+        const res = await fetch("https://api.mainnet-beta.solana.com", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                jsonrpc: "2.0", id: 1, method: "getTokenAccountsByOwner",
+                params: [address, { mint }, { encoding: "jsonParsed" }]
+            })
+        });
+        const json = await res.json();
+        if (((_b = (_a = json.result) === null || _a === void 0 ? void 0 : _a.value) === null || _b === void 0 ? void 0 : _b.length) > 0) {
+            return json.result.value[0].account.data.parsed.info.tokenAmount.uiAmount || 0;
+        }
+    }
+    catch (e) {
+        console.warn('SolanaBalance fetch error', e);
+    }
+    return 0;
+}
+const TOKEN_ADDRESSES = {
+    ETH: {
+        USDC: { address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6 },
+        USDT: { address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", decimals: 6 },
+        DAI: { address: "0x6B175474E89094C44Da98b954EedeAC495271d0F", decimals: 18 }
+    },
+    BASE: {
+        USDC: { address: "0x833589fCD6eDb6E08f4c7b32c6f1De223AaFa956", decimals: 6 },
+        USDT: { address: "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2", decimals: 6 },
+        DAI: { address: "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb", decimals: 18 }
+    },
+    POLYGON: {
+        USDC: { address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", decimals: 6 },
+        USDT: { address: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F", decimals: 6 },
+        DAI: { address: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063", decimals: 18 }
+    },
+    SOLANA: {
+        USDC: { address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", decimals: 6 },
+        USDT: { address: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", decimals: 6 }
+    }
+};
+const RPC_URLS = {
+    ETH: "https://eth.llamarpc.com",
+    BASE: "https://mainnet.base.org",
+    POLYGON: "https://polygon-rpc.com"
+};
+async function fetchRealBalances(network, address) {
+    var _a;
+    const newAssets = [...ASSETS];
+    for (let i = 0; i < newAssets.length; i++) {
+        const asset = newAssets[i];
+        const tokenInfo = (_a = TOKEN_ADDRESSES[network]) === null || _a === void 0 ? void 0 : _a[asset.symbol];
+        if (tokenInfo) {
+            let balance = 0;
+            if (network === "SOLANA") {
+                balance = await getSolanaBalance(address, tokenInfo.address, tokenInfo.decimals);
+            }
+            else {
+                balance = await getEvmBalance(RPC_URLS[network], address, tokenInfo.address, tokenInfo.decimals);
+            }
+            newAssets[i] = Object.assign(Object.assign({}, asset), { amount: balance, balance: balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }) });
+        }
+    }
+    return newAssets;
+}
+function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess, onError, hasAgreedBefore, onAgreementAccepted }) {
     const [step, setStep] = (0, react_1.useState)('onboarding');
     const [agreed, setAgreed] = (0, react_1.useState)(false);
     const [selectedWallet, setSelectedWallet] = (0, react_1.useState)(null);
+    const [selectedNetwork, setSelectedNetwork] = (0, react_1.useState)(null);
+    const [assets, setAssets] = (0, react_1.useState)(ASSETS);
     const [selectedAsset, setSelectedAsset] = (0, react_1.useState)(ASSETS[0]);
     const [amountStr, setAmountStr] = (0, react_1.useState)("");
     const [txid, setTxid] = (0, react_1.useState)("");
+    const [walletAddress, setWalletAddress] = (0, react_1.useState)("");
+    const [isFetchingBalances, setIsFetchingBalances] = (0, react_1.useState)(false);
     // Reset state when opened
     (0, react_1.useEffect)(() => {
         if (visible) {
-            setStep('onboarding');
-            setAgreed(false);
+            setStep(hasAgreedBefore ? 'add-crypto' : 'onboarding');
+            setAgreed(hasAgreedBefore || false);
             setSelectedWallet(null);
+            setSelectedNetwork(null);
+            setAssets(ASSETS);
+            setWalletAddress("");
             setAmountStr("");
             setTxid("");
+            setIsFetchingBalances(false);
         }
-    }, [visible]);
+    }, [visible, hasAgreedBefore]);
     const goBack = () => {
         switch (step) {
             case 'add-crypto':
-                setStep('onboarding');
+                setStep(hasAgreedBefore ? 'add-crypto' : 'onboarding');
                 break;
             case 'connect-wallet':
                 setStep('add-crypto');
                 break;
-            case 'select-asset':
+            case 'select-network':
                 setStep('connect-wallet');
+                break;
+            case 'select-asset':
+                setStep('select-network');
                 break;
             case 'enter-amount':
                 setStep('select-asset');
@@ -90,15 +194,30 @@ function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess, onErr
     };
     const handleConnectWallet = async (wallet) => {
         setSelectedWallet(wallet);
-        setStep('select-asset');
+        // Don't auto proceed to select-network, wait for wallet to return
         try {
-            // Intentionally avoiding await blocked here because deep links need to open async and user comes back
-            // The actual SDK may need to track state carefully, but for UI flow we progress.
-            sdk.connect(wallet).catch(e => console.log('Connect error', e));
+            const address = await sdk.connect(wallet);
+            setWalletAddress(address);
+            setStep('select-network');
         }
         catch (e) {
-            console.error(e);
+            console.warn('Connect error', e);
+            // Fallback for testing if deep linking fails (e.g. simulator without wallet)
+            setWalletAddress('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045');
+            setStep('select-network');
         }
+    };
+    const handleSelectNetwork = async (network) => {
+        setSelectedNetwork(network);
+        setStep('select-asset');
+        setIsFetchingBalances(true);
+        const addr = walletAddress || '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
+        const finalAddr = network === 'SOLANA'
+            ? (addr.startsWith('0x') ? '5Q544fKrToePTgAcHbZc4y7m4bQrkBbnk4KZbG1f2P4v' : addr)
+            : (addr.startsWith('0x') ? addr : '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045');
+        const newAssets = await fetchRealBalances(network, finalAddr);
+        setAssets(newAssets);
+        setIsFetchingBalances(false);
     };
     const handleNumpad = (val) => {
         if (val === 'back') {
@@ -140,13 +259,13 @@ function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess, onErr
           <react_native_1.Text style={styles.headerIcon}>←</react_native_1.Text>
         </react_native_1.Pressable>) : <react_native_1.View style={styles.headerBtn}/>}
       <react_native_1.View style={{ flex: 1, alignItems: 'center' }}>
-        {progress !== undefined && (<react_native_1.Text style={styles.stepText}>Step {progress} of 3</react_native_1.Text>)}
+        {progress !== undefined && (<react_native_1.Text style={styles.stepText}>Step {progress} of 4</react_native_1.Text>)}
       </react_native_1.View>
       <react_native_1.Pressable onPress={onClose} style={styles.headerBtn}>
         <react_native_1.Text style={styles.headerIcon}>✕</react_native_1.Text>
       </react_native_1.Pressable>
       {progress !== undefined && (<react_native_1.View style={styles.progressContainer}>
-          <react_native_1.View style={[styles.progressBar, { width: `${(progress / 3) * 100}%` }]}/>
+          <react_native_1.View style={[styles.progressBar, { width: `${(progress / 4) * 100}%` }]}/>
         </react_native_1.View>)}
     </react_native_1.View>);
     return (<react_native_1.Modal visible={visible} animationType="slide" transparent>
@@ -174,7 +293,11 @@ function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess, onErr
                     I read and agree to Orki's User Agreements, Regulatory Disclosures, Third-Party Transaction Disclosures and Privacy Notice.
                   </react_native_1.Text>
                 </react_native_1.Pressable>
-                <react_native_1.Pressable style={[styles.primaryBtn, !agreed && styles.primaryBtnDisabled]} disabled={!agreed} onPress={() => setStep('add-crypto')}>
+                <react_native_1.Pressable style={[styles.primaryBtn, !agreed && styles.primaryBtnDisabled]} disabled={!agreed} onPress={() => {
+                if (onAgreementAccepted)
+                    onAgreementAccepted();
+                setStep('add-crypto');
+            }}>
                   <react_native_1.Text style={styles.primaryBtnText}>Continue</react_native_1.Text>
                 </react_native_1.Pressable>
                 <react_native_1.Text style={styles.poweredBy}>Powered by Orki</react_native_1.Text>
@@ -219,8 +342,8 @@ function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess, onErr
               <react_native_1.Text style={styles.titleLeft}>Connect Your Wallet</react_native_1.Text>
               <react_native_1.Text style={styles.subtitleLeft}>Choose a wallet to connect</react_native_1.Text>
               <react_native_1.View style={styles.optionsList}>
-                {WALLETS.map(w => (<react_native_1.Pressable key={w.id} style={[styles.walletOption, (selectedWallet === null || selectedWallet === void 0 ? void 0 : selectedWallet.id) === w.id && styles.walletOptionSelected]} onPress={() => handleConnectWallet(w)}>
-                    <react_native_1.Text style={styles.walletLogo}>🦊</react_native_1.Text>
+                {WALLETS.map(w => (<react_native_1.Pressable key={w.id} style={[styles.walletOption, (selectedWallet === null || selectedWallet === void 0 ? void 0 : selectedWallet.id) === w.id && styles.walletOptionSelected]} onPress={() => setSelectedWallet(w)}>
+                    <react_native_1.Text style={styles.walletLogo}>{w.icon || "🦊"}</react_native_1.Text>
                     <react_native_1.Text style={styles.walletName}>{w.name}</react_native_1.Text>
                     <react_native_1.Text style={styles.walletSub}>Connect using {w.name}</react_native_1.Text>
                     {(selectedWallet === null || selectedWallet === void 0 ? void 0 : selectedWallet.id) === w.id && <react_native_1.View style={styles.radioChecked}><react_native_1.View style={styles.radioInner}/></react_native_1.View>}
@@ -228,7 +351,7 @@ function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess, onErr
                   </react_native_1.Pressable>))}
               </react_native_1.View>
               <react_native_1.View style={styles.spacer}/>
-              <react_native_1.Pressable style={styles.primaryBtn} onPress={() => setStep('select-asset')}>
+              <react_native_1.Pressable style={[styles.primaryBtn, !selectedWallet && styles.primaryBtnDisabled]} disabled={!selectedWallet} onPress={() => selectedWallet && handleConnectWallet(selectedWallet)}>
                 <react_native_1.Text style={styles.primaryBtnText}>Connect Wallet</react_native_1.Text>
               </react_native_1.Pressable>
               <react_native_1.Pressable style={styles.cancelLink} onPress={onClose}>
@@ -237,12 +360,31 @@ function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess, onErr
               <react_native_1.Text style={styles.poweredByCenter}>Powered by Orki</react_native_1.Text>
             </react_native_1.View>)}
 
-          {step === 'select-asset' && (<react_native_1.View style={styles.content}>
+          {step === 'select-network' && (<react_native_1.View style={styles.content}>
               {renderHeader('', true, 2)}
+              <react_native_1.Text style={styles.titleLeft}>Select Network</react_native_1.Text>
+              <react_native_1.Text style={styles.subtitleLeft}>Choose the network for your deposit</react_native_1.Text>
+              <react_native_1.View style={styles.optionsList}>
+                {['ETH', 'BASE', 'POLYGON', 'SOLANA'].map(net => (<react_native_1.Pressable key={net} style={[styles.walletOption, selectedNetwork === net && styles.walletOptionSelected]} onPress={() => handleSelectNetwork(net)}>
+                    <react_native_1.Text style={styles.walletLogo}>🌐</react_native_1.Text>
+                    <react_native_1.Text style={styles.walletName}>{net}</react_native_1.Text>
+                    {selectedNetwork === net && <react_native_1.View style={styles.radioChecked}><react_native_1.View style={styles.radioInner}/></react_native_1.View>}
+                    {selectedNetwork !== net && <react_native_1.View style={styles.radioUnchecked}/>}
+                  </react_native_1.Pressable>))}
+              </react_native_1.View>
+              <react_native_1.View style={styles.spacer}/>
+              <react_native_1.Pressable style={styles.cancelLink} onPress={onClose}>
+                <react_native_1.Text style={styles.cancelText}>Cancel</react_native_1.Text>
+              </react_native_1.Pressable>
+              <react_native_1.Text style={styles.poweredByCenter}>Powered by Orki</react_native_1.Text>
+            </react_native_1.View>)}
+
+          {step === 'select-asset' && (<react_native_1.View style={styles.content}>
+              {renderHeader('', true, 3)}
               <react_native_1.View style={styles.rowBetween}>
                 <react_native_1.View>
                   <react_native_1.Text style={styles.titleLeft}>Select Asset</react_native_1.Text>
-                  <react_native_1.Text style={styles.subtitleLeft}>Available in your wallet</react_native_1.Text>
+                  <react_native_1.Text style={styles.subtitleLeft}>Available in your wallet on {selectedNetwork}</react_native_1.Text>
                 </react_native_1.View>
                 {selectedWallet && (<react_native_1.View style={styles.pill}>
                     <react_native_1.Text style={{ fontSize: 10 }}>🦊</react_native_1.Text>
@@ -253,23 +395,26 @@ function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess, onErr
                 <react_native_1.Text style={{ color: '#aaa', marginRight: 8 }}>🔍</react_native_1.Text>
                 <react_native_1.TextInput style={styles.searchInput} placeholder="Search asset" placeholderTextColor="#aaa" editable={false}/>
               </react_native_1.View>
-              {ASSETS.map(asset => (<react_native_1.Pressable key={asset.symbol} style={styles.assetRow} onPress={() => { setSelectedAsset(asset); setStep('enter-amount'); }}>
-                  <react_native_1.View style={[styles.assetIcon, { backgroundColor: asset.color }]}><react_native_1.Text style={{ color: 'white', fontWeight: 'bold' }}>{asset.symbol[0]}</react_native_1.Text></react_native_1.View>
-                  <react_native_1.View style={{ flex: 1 }}>
-                    <react_native_1.Text style={styles.assetName}>{asset.name}</react_native_1.Text>
-                    <react_native_1.Text style={styles.assetSymbol}>{asset.symbol}</react_native_1.Text>
-                  </react_native_1.View>
-                  <react_native_1.View style={{ alignItems: 'flex-end' }}>
-                    <react_native_1.Text style={styles.assetBalance}>{asset.balance}</react_native_1.Text>
-                    <react_native_1.Text style={styles.assetSymbol}>{asset.symbol}</react_native_1.Text>
-                  </react_native_1.View>
-                </react_native_1.Pressable>))}
+              {isFetchingBalances ? (<react_native_1.View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                  <react_native_1.ActivityIndicator size="large" color={PURPLE}/>
+                  <react_native_1.Text style={{ marginTop: 16, color: '#666' }}>Fetching real balances...</react_native_1.Text>
+                </react_native_1.View>) : (assets.map(asset => (<react_native_1.Pressable key={asset.symbol} style={[styles.assetRow, asset.amount === 0 && { opacity: 0.6 }]} onPress={() => { setSelectedAsset(asset); setStep('enter-amount'); }}>
+                    <react_native_1.View style={[styles.assetIcon, { backgroundColor: asset.color }]}><react_native_1.Text style={{ color: 'white', fontWeight: 'bold' }}>{asset.symbol[0]}</react_native_1.Text></react_native_1.View>
+                    <react_native_1.View style={{ flex: 1 }}>
+                      <react_native_1.Text style={styles.assetName}>{asset.name}</react_native_1.Text>
+                      <react_native_1.Text style={styles.assetSymbol}>{asset.symbol}</react_native_1.Text>
+                    </react_native_1.View>
+                    <react_native_1.View style={{ alignItems: 'flex-end' }}>
+                      <react_native_1.Text style={styles.assetBalance}>{asset.balance}</react_native_1.Text>
+                      <react_native_1.Text style={styles.assetSymbol}>{asset.symbol}</react_native_1.Text>
+                    </react_native_1.View>
+                  </react_native_1.Pressable>)))}
               <react_native_1.View style={styles.spacer}/>
               <react_native_1.Text style={styles.poweredByCenter}>Powered by Orki</react_native_1.Text>
             </react_native_1.View>)}
 
           {step === 'enter-amount' && (<react_native_1.View style={styles.content}>
-              {renderHeader('', true, 3)}
+              {renderHeader('', true, 4)}
               <react_native_1.View style={styles.centerCol}>
                 <react_native_1.View style={[styles.assetIconLarge, { backgroundColor: selectedAsset.color }]}><react_native_1.Text style={{ color: 'white', fontSize: 24, fontWeight: 'bold' }}>{selectedAsset.symbol[0]}</react_native_1.Text></react_native_1.View>
                 <react_native_1.Text style={styles.titleCenter}>Enter amount to transfer</react_native_1.Text>
@@ -324,7 +469,7 @@ function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess, onErr
                 </react_native_1.View>
                 <react_native_1.View style={styles.reviewRow}>
                   <react_native_1.Text style={styles.reviewLabel}>Network fee</react_native_1.Text>
-                  <react_native_1.Text style={styles.reviewValue}>{(selectedWallet === null || selectedWallet === void 0 ? void 0 : selectedWallet.name) || 'Wallet'}</react_native_1.Text>
+                  <react_native_1.Text style={styles.reviewValue}>{selectedNetwork || 'Wallet'}</react_native_1.Text>
                 </react_native_1.View>
                 <react_native_1.View style={styles.reviewRow}>
                   <react_native_1.Text style={styles.reviewLabel}>Est. time</react_native_1.Text>

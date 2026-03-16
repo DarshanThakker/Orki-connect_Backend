@@ -7,5 +7,7 @@ export interface OrkiConnectModalProps {
     sdk: OrkiConnect;
     onSuccess?: (txid: string) => void;
     onError?: (error: string) => void;
+    hasAgreedBefore?: boolean;
+    onAgreementAccepted?: () => void;
 }
-export declare function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess, onError }: OrkiConnectModalProps): React.JSX.Element;
+export declare function OrkiConnectModal({ visible, onClose, bankAddress, sdk, onSuccess, onError, hasAgreedBefore, onAgreementAccepted }: OrkiConnectModalProps): React.JSX.Element;
