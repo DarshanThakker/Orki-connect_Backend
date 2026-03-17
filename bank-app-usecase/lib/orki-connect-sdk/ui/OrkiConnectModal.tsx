@@ -23,7 +23,10 @@ import { styles, PURPLE } from "./OrkiConnectModal.styles";
 export interface OrkiConnectModalProps {
   visible: boolean;
   onClose: () => void;
-  bankAddress: string;
+  /** Solana deposit address returned from the session response */
+  solanaDepositAddress: string;
+  /** EVM deposit address returned from the session response */
+  evmDepositAddress?: string;
   sdk: OrkiConnect;
   onSuccess?: (txid: string) => void;
   onError?: (error: string) => void;
@@ -35,6 +38,8 @@ export interface OrkiConnectModalProps {
   sessionJwt?: string;
   /** User ID to associate with transactions */
   userId?: string;
+  /** ISO 8601 expiry timestamp from the session response — drives the countdown timer */
+  expiresAt?: string;
 }
 
 const WALLETS: WalletInfo[] = [
@@ -88,6 +93,9 @@ const ASSETS = [
   { symbol: "DAI", name: "Dai", balance: "0.00", amount: 0, color: "#F4B731" },
 ];
 
+const MAX_DEPOSIT = 10000;
+const SESSION_DURATION = 15 * 60; // 15 minutes in seconds
+
 type Step =
   | "onboarding"
   | "add-crypto"
@@ -106,18 +114,25 @@ const TOTAL_STEPS = 4;
 // Solana connection used only for finalization polling
 const SOLANA_CONNECTION = new Connection(clusterApiUrl("devnet"), "finalized");
 
-function getExplorerUrl(txid: string, chainId: number | undefined): string | null {
-  if (!txid || txid === 'submitted') return null;
-  if (chainId === 1 || chainId === 11155111)  return `https://etherscan.io/tx/${txid}`;
-  if (chainId === 8453 || chainId === 84532)  return `https://basescan.org/tx/${txid}`;
-  if (chainId === 137 || chainId === 80002)   return `https://polygonscan.com/tx/${txid}`;
+function getExplorerUrl(
+  txid: string,
+  chainId: number | undefined,
+): string | null {
+  if (!txid || txid === "submitted") return null;
+  if (chainId === 1 || chainId === 11155111)
+    return `https://etherscan.io/tx/${txid}`;
+  if (chainId === 8453 || chainId === 84532)
+    return `https://basescan.org/tx/${txid}`;
+  if (chainId === 137 || chainId === 80002)
+    return `https://polygonscan.com/tx/${txid}`;
   return `https://solscan.io/tx/${txid}`;
 }
 
 export function OrkiConnectModal({
   visible,
   onClose,
-  bankAddress,
+  solanaDepositAddress,
+  evmDepositAddress,
   sdk,
   onSuccess,
   onError,
@@ -126,6 +141,7 @@ export function OrkiConnectModal({
   sessionId: sessionIdProp,
   sessionJwt: sessionJwtProp,
   userId: userIdProp,
+  expiresAt: expiresAtProp,
 }: OrkiConnectModalProps) {
   const [step, setStep] = useState<Step>("onboarding");
   const [agreed, setAgreed] = useState(false);
@@ -137,14 +153,44 @@ export function OrkiConnectModal({
   const [selectedAsset, setSelectedAsset] = useState(ASSETS[0]);
   const [amountStr, setAmountStr] = useState("");
   const [txid, setTxid] = useState("");
-  const [activeChainId, setActiveChainId] = useState<number | undefined>(undefined);
+  const [activeChainId, setActiveChainId] = useState<number | undefined>(
+    undefined,
+  );
   const [walletAddress, setWalletAddress] = useState("");
   const [isFetchingBalances, setIsFetchingBalances] = useState(false);
   const [confirmationCount, setConfirmationCount] = useState(0);
 
+  // ── Countdown timer state ─────────────────────────────────────────────────
+  const [timeLeft, setTimeLeft] = useState<number>(SESSION_DURATION);
+  const [timerActive, setTimerActive] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Ref to cancel polling if modal closes mid-flight
   const pollingRef = useRef<boolean>(false);
 
+  // ── Timer effect ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (timerActive && timeLeft > 0) {
+      timerRef.current = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current!);
+            setTimerActive(false);
+            setStep("failed");
+            pollingRef.current = false;
+            if (onError) onError("Session timed out");
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [timerActive]);
+
+  // ── Reset on modal open/close ─────────────────────────────────────────────
   useEffect(() => {
     if (visible) {
       setStep(hasAgreedBefore ? "add-crypto" : "onboarding");
@@ -158,13 +204,45 @@ export function OrkiConnectModal({
       setActiveChainId(undefined);
       setConfirmationCount(0);
       setIsFetchingBalances(false);
+      setTimeLeft(expiresAtProp
+        ? Math.max(0, Math.floor((new Date(expiresAtProp).getTime() - Date.now()) / 1000))
+        : SESSION_DURATION);
+      setTimerActive(false);
       pollingRef.current = false;
     } else {
-      // Cancel any in-flight polling when modal closes
+      // Cancel any in-flight polling and timer when modal closes
       pollingRef.current = false;
+      setTimerActive(false);
+      if (timerRef.current) clearInterval(timerRef.current);
     }
   }, [visible, hasAgreedBefore]);
 
+  // ── Timer helpers ─────────────────────────────────────────────────────────
+  const startTimer = () => {
+    const secondsLeft = expiresAtProp
+      ? Math.max(0, Math.floor((new Date(expiresAtProp).getTime() - Date.now()) / 1000))
+      : SESSION_DURATION;
+    setTimeLeft(secondsLeft);
+    setTimerActive(true);
+  };
+
+  const stopTimer = () => {
+    setTimerActive(false);
+    if (timerRef.current) clearInterval(timerRef.current);
+  };
+
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60)
+      .toString()
+      .padStart(2, "0");
+    const s = (secs % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  };
+
+  const isTimerWarning = timeLeft <= 60;
+  const timerStarted = timerActive || timeLeft < SESSION_DURATION;
+
+  // ── Navigation ────────────────────────────────────────────────────────────
   const goBack = () => {
     switch (step) {
       case "add-crypto":
@@ -193,18 +271,28 @@ export function OrkiConnectModal({
     }
   };
 
+  // ── Wallet connect ────────────────────────────────────────────────────────
   const handleConnectWallet = async (wallet: WalletInfo) => {
     setSelectedWallet(wallet);
+    // Start the 15-minute session timer when SDK interaction begins
+    startTimer();
+
+    // Phantom uses an encrypted deeplink connect protocol that returns the public key.
+    // EVM wallets only support sign/pay deeplinks — skip straight to network selection.
+    if (wallet.id !== "phantom") {
+      setStep("select-network");
+      return;
+    }
     try {
       const address = await sdk.connect(wallet);
       setWalletAddress(address);
       setStep("select-network");
     } catch (e) {
-      setWalletAddress("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
       setStep("select-network");
     }
   };
 
+  // ── Network select ────────────────────────────────────────────────────────
   const handleSelectNetwork = async (network: NetworkId) => {
     setSelectedNetwork(network);
     setStep("select-asset");
@@ -234,21 +322,22 @@ export function OrkiConnectModal({
     setIsFetchingBalances(false);
   };
 
+  // ── Numpad input (with 10k cap) ───────────────────────────────────────────
   const handleNumpad = (val: string) => {
     if (val === "back") {
       setAmountStr((prev) => prev.slice(0, -1));
     } else if (val === ".") {
       if (!amountStr.includes(".")) setAmountStr((prev) => prev + ".");
     } else {
-      setAmountStr((prev) => (prev === "0" ? val : prev + val));
+      const next =
+        amountStr === "0" || amountStr === "" ? val : amountStr + val;
+      if (parseFloat(next) <= MAX_DEPOSIT) {
+        setAmountStr(next);
+      }
     }
   };
 
-  /**
-   * Polls Solana for finalization of `signature`.
-   * - Fires the backend API call immediately (fire-and-forget).
-   * - Polls every 3 s for up to 2 min; moves to success/failed accordingly.
-   */
+  // ── Solana finalization polling ────────────────────────────────────────────
   const pollForFinalization = async (
     signature: string,
     amount: number,
@@ -257,17 +346,25 @@ export function OrkiConnectModal({
   ) => {
     pollingRef.current = true;
 
-    // ── Fire-and-forget API report ──────────────────────────────────────────
-    sdk.reportTransaction(signature, amount, symbol, network, sessionIdProp, sessionJwtProp, userIdProp).catch(
-      (err) => console.warn("[OrkiConnect] reportTransaction failed:", err),
-    );
+    sdk
+      .reportTransaction(
+        signature,
+        amount,
+        symbol,
+        network,
+        sessionIdProp,
+        sessionJwtProp,
+        userIdProp,
+      )
+      .catch((err) =>
+        console.warn("[OrkiConnect] reportTransaction failed:", err),
+      );
 
-    // ── Poll for finalization ───────────────────────────────────────────────
-    const MAX_ATTEMPTS = 40; // 40 × 3 s = 120 s
+    const MAX_ATTEMPTS = 40;
     const POLL_INTERVAL_MS = 3000;
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      if (!pollingRef.current) return; // Modal was closed — abort silently
+      if (!pollingRef.current) return;
 
       try {
         const statuses = await SOLANA_CONNECTION.getSignatureStatuses(
@@ -276,11 +373,9 @@ export function OrkiConnectModal({
             searchTransactionHistory: true,
           },
         );
-        console.log(statuses);
         const status = statuses?.value?.[0];
 
         if (status) {
-          // Update confirmation count for UI
           const confirmations =
             typeof status.confirmations === "number" ? status.confirmations : 0;
           setConfirmationCount(confirmations);
@@ -291,6 +386,7 @@ export function OrkiConnectModal({
           ) {
             if (pollingRef.current) {
               pollingRef.current = false;
+              stopTimer();
               setStep("success");
             }
             return;
@@ -299,6 +395,7 @@ export function OrkiConnectModal({
           if (status.err) {
             if (pollingRef.current) {
               pollingRef.current = false;
+              stopTimer();
               setStep("failed");
               if (onError) onError("Transaction failed on-chain");
             }
@@ -312,18 +409,19 @@ export function OrkiConnectModal({
       await new Promise<void>((r) => setTimeout(r, POLL_INTERVAL_MS));
     }
 
-    // Timed out
     if (pollingRef.current) {
       pollingRef.current = false;
+      stopTimer();
       setStep("failed");
       if (onError) onError("Transaction confirmation timed out");
     }
   };
 
+  // ── Confirm & sign ────────────────────────────────────────────────────────
   const handleConfirmAndSign = async () => {
     if (!selectedNetwork) return;
     const amount = parseFloat(amountStr || "0");
-    if (amount <= 0 || amount > selectedAsset.amount) {
+    if (amount <= 0 || amount > selectedAsset.amount || amount > MAX_DEPOSIT) {
       if (onError) onError("Invalid amount");
       return;
     }
@@ -347,8 +445,12 @@ export function OrkiConnectModal({
           });
       }
 
+      const depositAddress = chainId !== undefined
+        ? (evmDepositAddress ?? solanaDepositAddress)
+        : solanaDepositAddress;
+
       const result = await sdk.transferToBank(
-        bankAddress,
+        depositAddress,
         amount,
         {
           mint: tokenCfg.address,
@@ -356,7 +458,6 @@ export function OrkiConnectModal({
           ...(chainId !== undefined && { chainId }),
         },
         () => {
-          // User signed — move to processing and begin finalization polling
           setStep("processing");
         },
         selectedWallet?.id,
@@ -372,7 +473,6 @@ export function OrkiConnectModal({
         returnedTxid &&
         returnedTxid !== "submitted"
       ) {
-        // Solana: poll for on-chain finalization
         pollForFinalization(
           returnedTxid,
           amount,
@@ -380,10 +480,11 @@ export function OrkiConnectModal({
           selectedNetwork,
         );
       } else {
-        // EVM or no txid: move straight to success
+        stopTimer();
         setStep("success");
       }
     } catch (error: any) {
+      stopTimer();
       setStep("failed");
       if (onError) onError(error.message || String(error));
     }
@@ -404,14 +505,51 @@ export function OrkiConnectModal({
         ) : (
           <View style={styles.headerBackBtn} />
         )}
+
         {title ? (
           <Text style={styles.headerTitle}>{title}</Text>
         ) : (
           <View style={{ flex: 1 }} />
         )}
-        <Pressable onPress={onClose} hitSlop={8} style={styles.headerCloseBtn}>
-          <Text style={styles.headerCloseIcon}>✕</Text>
-        </Pressable>
+
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          {/* Countdown timer pill — shown once timer has started */}
+          {timerStarted && (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: isTimerWarning ? "#fff0f0" : "#f3f0ff",
+                borderRadius: 12,
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                borderWidth: 1,
+                borderColor: isTimerWarning ? "#ffcccc" : "#e0d7ff",
+              }}
+            >
+              <Text style={{ fontSize: 11, marginRight: 3 }}>⏱</Text>
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight: "700",
+                  color: isTimerWarning ? "#cc0000" : PURPLE,
+                  // tabular numbers keep width stable as digits change
+                  fontVariant: ["tabular-nums"],
+                }}
+              >
+                {formatTime(timeLeft)}
+              </Text>
+            </View>
+          )}
+
+          <Pressable
+            onPress={onClose}
+            hitSlop={8}
+            style={styles.headerCloseBtn}
+          >
+            <Text style={styles.headerCloseIcon}>✕</Text>
+          </Pressable>
+        </View>
       </View>
 
       {progress !== undefined && (
@@ -443,7 +581,7 @@ export function OrkiConnectModal({
     <Modal visible={visible} animationType="slide" transparent>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.container}>
-          {/* ONBOARDING */}
+          {/* ── ONBOARDING ─────────────────────────────────────────────────── */}
           {step === "onboarding" && (
             <View style={styles.content}>
               {renderHeader("", false)}
@@ -521,7 +659,7 @@ export function OrkiConnectModal({
             </View>
           )}
 
-          {/* ADD CRYPTO */}
+          {/* ── ADD CRYPTO ─────────────────────────────────────────────────── */}
           {step === "add-crypto" && (
             <View style={styles.content}>
               {renderHeader("", true)}
@@ -570,7 +708,7 @@ export function OrkiConnectModal({
             </View>
           )}
 
-          {/* CONNECT WALLET */}
+          {/* ── CONNECT WALLET ─────────────────────────────────────────────── */}
           {step === "connect-wallet" && (
             <View style={styles.content}>
               {renderHeader("Wallet Connect", true, 1)}
@@ -621,7 +759,7 @@ export function OrkiConnectModal({
             </View>
           )}
 
-          {/* SELECT NETWORK */}
+          {/* ── SELECT NETWORK ─────────────────────────────────────────────── */}
           {step === "select-network" && (
             <View style={styles.content}>
               {renderHeader("", true, 2)}
@@ -659,7 +797,7 @@ export function OrkiConnectModal({
             </View>
           )}
 
-          {/* SELECT ASSET */}
+          {/* ── SELECT ASSET ───────────────────────────────────────────────── */}
           {step === "select-asset" && (
             <View style={styles.content}>
               {renderHeader("", true, 3)}
@@ -744,74 +882,187 @@ export function OrkiConnectModal({
             </View>
           )}
 
-          {/* ENTER AMOUNT */}
+          {/* ── ENTER AMOUNT ───────────────────────────────────────────────── */}
           {step === "enter-amount" && (
             <View style={styles.content}>
               {renderHeader("", true, 4)}
+
               <View style={styles.centerCol}>
+                {/* Asset icon */}
                 <View
-                  style={[
-                    styles.assetIconLarge,
-                    { backgroundColor: selectedAsset.color },
-                  ]}
+                  style={{
+                    width: 64,
+                    height: 64,
+                    borderRadius: 32,
+                    backgroundColor: selectedAsset.color,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginBottom: 12,
+                  }}
                 >
                   <Text
-                    style={{ color: "white", fontSize: 24, fontWeight: "bold" }}
+                    style={{ color: "white", fontSize: 28, fontWeight: "bold" }}
                   >
-                    {selectedAsset.symbol[0]}
+                    $
                   </Text>
                 </View>
+
                 <Text style={styles.titleCenter}>Enter amount to transfer</Text>
-                <Text style={styles.subtitleCenter}>
-                  Available: {selectedAsset.balance} {selectedAsset.symbol}
+
+                {/* Available balance */}
+                <Text style={[styles.subtitleCenter, { marginBottom: 20 }]}>
+                  Available:{" "}
+                  <Text style={{ fontWeight: "600", color: "#333" }}>
+                    {selectedAsset.balance} {selectedAsset.symbol}
+                  </Text>
                 </Text>
-                <View style={styles.amountInputDisplay}>
+
+                {/* Amount + cursor + symbol — inline, no border box */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingHorizontal: 16,
+                    marginBottom: 8,
+                  }}
+                >
                   <Text
-                    style={[styles.amountText, !amountStr && { color: "#bbb" }]}
+                    style={{
+                      fontSize: 48,
+                      fontWeight: "800",
+                      color: "#111",
+                      letterSpacing: -1,
+                    }}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.4}
                   >
                     {amountStr || "0"}
                   </Text>
-                  <View style={styles.verticalDivider} />
-                  <Text style={styles.amountSymbol}>
+                  {/* Red cursor divider */}
+                  <Text
+                    style={{
+                      fontSize: 48,
+                      fontWeight: "200",
+                      color: "#CC0000",
+                      marginHorizontal: 4,
+                      lineHeight: 58,
+                    }}
+                  >
+                    |
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 36,
+                      fontWeight: "600",
+                      color: "#BBBBBB",
+                    }}
+                  >
                     {selectedAsset.symbol}
                   </Text>
                 </View>
-                <Text style={styles.usdValue}>~ ${amountStr || "0"}</Text>
-                <View style={styles.presetRow}>
-                  <Pressable
-                    style={styles.presetBtn}
-                    onPress={() =>
-                      setAmountStr((selectedAsset.amount * 0.1).toString())
-                    }
+
+                {/* Swap icon */}
+                <Text style={{ fontSize: 20, color: PURPLE, marginBottom: 6 }}>
+                  ↑↓
+                </Text>
+
+                {/* USD equivalent */}
+                <Text style={{ fontSize: 16, color: "#444", marginBottom: 20 }}>
+                  ${amountStr ? Number(amountStr).toLocaleString() : "0"}
+                </Text>
+
+                {/* 10k cap warning */}
+                {parseFloat(amountStr) >= MAX_DEPOSIT && (
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: "#CC0000",
+                      marginBottom: 8,
+                      fontWeight: "600",
+                    }}
                   >
-                    <Text style={styles.presetText}>10%</Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.presetBtn}
-                    onPress={() =>
-                      setAmountStr((selectedAsset.amount * 0.5).toString())
-                    }
-                  >
-                    <Text style={styles.presetText}>50%</Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.presetBtn}
-                    onPress={() =>
-                      setAmountStr(selectedAsset.amount.toString())
-                    }
-                  >
-                    <Text style={styles.presetText}>Max</Text>
-                  </Pressable>
+                    Maximum deposit is ${MAX_DEPOSIT.toLocaleString()}
+                  </Text>
+                )}
+
+                {/* Preset % buttons — outlined pills */}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    gap: 10,
+                    marginBottom: 20,
+                    paddingHorizontal: 16,
+                    alignSelf: "stretch",
+                  }}
+                >
+                  {[
+                    { label: "10%", factor: 0.1 },
+                    { label: "50%", factor: 0.5 },
+                    { label: "Max", factor: 1 },
+                  ].map(({ label, factor }) => (
+                    <Pressable
+                      key={label}
+                      style={{
+                        flex: 1,
+                        borderWidth: 1.5,
+                        borderColor: "#CCCCCC",
+                        borderRadius: 24,
+                        paddingVertical: 10,
+                        alignItems: "center",
+                        backgroundColor: "transparent",
+                      }}
+                      onPress={() => {
+                        const raw = selectedAsset.amount * factor;
+                        const capped = Math.min(raw, MAX_DEPOSIT);
+                        setAmountStr(parseFloat(capped.toFixed(4)).toString());
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          fontWeight: "600",
+                          color: "#333",
+                        }}
+                      >
+                        {label}
+                      </Text>
+                    </Pressable>
+                  ))}
                 </View>
               </View>
-              <View style={styles.spacer} />
+
+              {/* Continue button — above the numpad */}
               <Pressable
-                style={[styles.primaryBtn, { marginBottom: 16 }]}
+                style={[
+                  styles.primaryBtn,
+                  { marginHorizontal: 16, marginBottom: 8 },
+                  (!amountStr ||
+                    parseFloat(amountStr) <= 0 ||
+                    parseFloat(amountStr) > selectedAsset.amount ||
+                    parseFloat(amountStr) > MAX_DEPOSIT) &&
+                    styles.primaryBtnDisabled,
+                ]}
+                disabled={
+                  !amountStr ||
+                  parseFloat(amountStr) <= 0 ||
+                  parseFloat(amountStr) > selectedAsset.amount ||
+                  parseFloat(amountStr) > MAX_DEPOSIT
+                }
                 onPress={() => setStep("review")}
               >
                 <Text style={styles.primaryBtnText}>Continue</Text>
               </Pressable>
-              <View style={styles.numpad}>
+
+              {/* Numpad — clean full-width 3-column grid */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  flexWrap: "wrap",
+                  paddingHorizontal: 8,
+                }}
+              >
                 {[
                   "1",
                   "2",
@@ -828,22 +1079,36 @@ export function OrkiConnectModal({
                 ].map((k) => (
                   <Pressable
                     key={k}
-                    style={styles.numKey}
+                    style={{
+                      width: "33.33%",
+                      paddingVertical: 18,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
                     onPress={() => handleNumpad(k)}
                   >
                     {k === "back" ? (
-                      <Text style={styles.numText}>⌫</Text>
+                      <Text style={{ fontSize: 22, color: "#333" }}>⌫</Text>
                     ) : (
-                      <Text style={styles.numText}>{k}</Text>
+                      <Text
+                        style={{
+                          fontSize: 26,
+                          fontWeight: "500",
+                          color: "#111",
+                        }}
+                      >
+                        {k}
+                      </Text>
                     )}
                   </Pressable>
                 ))}
               </View>
+
               <PoweredByOrki />
             </View>
           )}
 
-          {/* REVIEW */}
+          {/* ── REVIEW ─────────────────────────────────────────────────────── */}
           {step === "review" && (
             <View style={styles.content}>
               {renderHeader("", true)}
@@ -906,7 +1171,7 @@ export function OrkiConnectModal({
             </View>
           )}
 
-          {/* SIGNING */}
+          {/* ── SIGNING ────────────────────────────────────────────────────── */}
           {step === "signing" && (
             <View style={styles.content}>
               {renderHeader("", false)}
@@ -916,14 +1181,16 @@ export function OrkiConnectModal({
                     <View style={{ position: "relative" }}>
                       <WalletIcon walletId={selectedWallet.id} size={64} />
                       {selectedNetwork && (
-                        <View style={{
-                          position: "absolute",
-                          bottom: -4,
-                          right: -4,
-                          borderRadius: 12,
-                          backgroundColor: "#fff",
-                          padding: 2,
-                        }}>
+                        <View
+                          style={{
+                            position: "absolute",
+                            bottom: -4,
+                            right: -4,
+                            borderRadius: 12,
+                            backgroundColor: "#fff",
+                            padding: 2,
+                          }}
+                        >
                           <NetworkIcon networkId={selectedNetwork} size={24} />
                         </View>
                       )}
@@ -969,7 +1236,7 @@ export function OrkiConnectModal({
             </View>
           )}
 
-          {/* PROCESSING */}
+          {/* ── PROCESSING ─────────────────────────────────────────────────── */}
           {step === "processing" && (
             <View style={styles.content}>
               {renderHeader("", false)}
@@ -1041,7 +1308,7 @@ export function OrkiConnectModal({
             </View>
           )}
 
-          {/* FAILED */}
+          {/* ── FAILED ─────────────────────────────────────────────────────── */}
           {step === "failed" && (
             <View style={styles.content}>
               {renderHeader("", false)}
@@ -1056,13 +1323,22 @@ export function OrkiConnectModal({
                   Unfortunately, your deposit couldn't be processed.
                 </Text>
                 <Text style={[styles.subtitleCenter, { marginTop: 16 }]}>
-                  An unknown error occurred. Please try again later.
+                  {timeLeft === 0
+                    ? "Your session expired. Please start a new transfer."
+                    : "An unknown error occurred. Please try again later."}
                 </Text>
               </View>
               <View style={styles.spacer} />
               <Pressable
                 style={styles.primaryBtn}
-                onPress={() => setStep("enter-amount")}
+                onPress={() => {
+                  // Reset timer for retry
+                  setTimeLeft(expiresAtProp
+                    ? Math.max(0, Math.floor((new Date(expiresAtProp).getTime() - Date.now()) / 1000))
+                    : SESSION_DURATION);
+                  setTimerActive(false);
+                  setStep("enter-amount");
+                }}
               >
                 <Text style={styles.primaryBtnText}>Try Again</Text>
               </Pressable>
@@ -1070,7 +1346,7 @@ export function OrkiConnectModal({
             </View>
           )}
 
-          {/* SUCCESS */}
+          {/* ── SUCCESS ────────────────────────────────────────────────────── */}
           {step === "success" && (
             <View style={styles.content}>
               <View style={[styles.headerRow, { marginBottom: 16 }]}>
@@ -1146,7 +1422,7 @@ export function OrkiConnectModal({
                   >
                     {txid || "—"}
                   </Text>
-                  {!!txid && txid !== 'submitted' && (
+                  {!!txid && txid !== "submitted" && (
                     <Pressable
                       hitSlop={8}
                       onPress={() => Alert.alert("Copied", txid)}
@@ -1162,9 +1438,11 @@ export function OrkiConnectModal({
                       style={{ marginTop: 12, alignItems: "center" }}
                       onPress={() => RNLinking.openURL(explorerUrl)}
                     >
-                      <Text style={styles.explorerLink}>View on Explorer ↗</Text>
+                      <Text style={styles.explorerLink}>
+                        View on Explorer ↗
+                      </Text>
                     </Pressable>
-                  ) : txid === 'submitted' ? (
+                  ) : txid === "submitted" ? (
                     <Text style={[styles.explorerLink, { opacity: 0.5 }]}>
                       Transaction submitted — check your wallet for status
                     </Text>
@@ -1175,6 +1453,7 @@ export function OrkiConnectModal({
               <Pressable
                 style={styles.primaryBtn}
                 onPress={() => {
+                  stopTimer();
                   if (onSuccess) onSuccess(txid);
                   onClose();
                 }}

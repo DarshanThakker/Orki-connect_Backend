@@ -11,9 +11,8 @@ import {
 import { OrkiConnect, OrkiConnectModal, solana } from "@/lib/orki-connect-sdk";
 import * as ExpoLinking from "expo-linking";
 
-const USER_ID = "darshan_thakker_001";
-const BANK_ADDRESS = "83p8Pmc2jU4by5ZSyhwYEQw7D5YAFz9joC9mnw49NzoP";
-const BANK_BACKEND_URL = process.env.EXPO_PUBLIC_BANK_BACKEND_URL ?? "http://localhost:4000";
+const USER_ID = process.env.EXPO_PUBLIC_USER_ID ?? "darshan_thakker_001";
+const BANK_BACKEND_URL = process.env.EXPO_PUBLIC_BANK_BACKEND_URL ?? "http://localhost:5000";
 
 const RECENT_TRANSACTIONS = [
   {
@@ -48,7 +47,7 @@ const redirectUrl = ExpoLinking.createURL("wallet-callback");
 const orkiSDK = new OrkiConnect({
   network: solana.devnet,
   redirectScheme: redirectUrl,
-  backendUrl: process.env.EXPO_PUBLIC_ORKI_BACKEND_URL ?? "http://localhost:3000",
+  backendUrl: process.env.EXPO_PUBLIC_ORKI_BACKEND_URL,
 });
 
 function getGreeting() {
@@ -64,35 +63,54 @@ export default function BankApp() {
   const [hasAgreedBefore, setHasAgreedBefore] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>();
   const [sessionJwt, setSessionJwt] = useState<string | undefined>();
+  const [sessionExpiresAt, setSessionExpiresAt] = useState<string | undefined>();
+  const [solanaDepositAddress, setSolanaDepositAddress] = useState<string>("");
+  const [evmDepositAddress, setEvmDepositAddress] = useState<string | undefined>();
 
   const handleDepositSuccess = async (_txid: string) => {
     setDepositModalVisible(false);
     try {
       const res = await fetch(`${BANK_BACKEND_URL}/api/balance/${USER_ID}`);
       if (res.ok) {
-        const data = await res.json() as { balances?: Record<string, number> };
+        const data = (await res.json()) as {
+          balances?: Record<string, number>;
+        };
         const usdc = data.balances?.USDC ?? data.balances?.usdc ?? 0;
-        setBalance(usdc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+        setBalance(
+          usdc.toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          }),
+        );
       }
     } catch (err) {
-      console.warn('Could not fetch balance from bank-backend:', err);
+      console.warn("Could not fetch balance from bank-backend:", err);
     }
   };
 
   const handleDepositPress = async () => {
     try {
       const res = await fetch(`${BANK_BACKEND_URL}/api/session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: USER_ID, deposit_address: BANK_ADDRESS, network: 'SOLANA', token: 'USDC' }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: USER_ID, network: "SOLANA", token: "USDC" }),
       });
       if (res.ok) {
-        const data = await res.json() as { session_id: string; session_jwt: string };
+        const data = (await res.json()) as {
+          session_id: string;
+          session_jwt: string;
+          expires_at: string;
+          deposit_address: string;
+          evm_deposit_address?: string;
+        };
         setSessionId(data.session_id);
         setSessionJwt(data.session_jwt);
+        setSessionExpiresAt(data.expires_at);
+        setSolanaDepositAddress(data.deposit_address);
+        setEvmDepositAddress(data.evm_deposit_address);
       }
     } catch (err) {
-      console.warn('Could not create session:', err);
+      console.warn("Could not create session:", err);
     }
     setDepositModalVisible(true);
   };
@@ -141,10 +159,7 @@ export default function BankApp() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.actionsRow}>
-            <Pressable
-              style={styles.actionBtn}
-              onPress={handleDepositPress}
-            >
+            <Pressable style={styles.actionBtn} onPress={handleDepositPress}>
               <View style={[styles.actionIcon, { backgroundColor: "#1a2a1a" }]}>
                 <Text style={styles.actionEmoji}>⬇️</Text>
               </View>
@@ -214,13 +229,15 @@ export default function BankApp() {
       <OrkiConnectModal
         visible={depositModalVisible}
         onClose={() => setDepositModalVisible(false)}
-        bankAddress={BANK_ADDRESS}
+        solanaDepositAddress={solanaDepositAddress}
+        evmDepositAddress={evmDepositAddress}
         sdk={orkiSDK}
         onSuccess={handleDepositSuccess}
         hasAgreedBefore={hasAgreedBefore}
         onAgreementAccepted={() => setHasAgreedBefore(true)}
         sessionId={sessionId}
         sessionJwt={sessionJwt}
+        expiresAt={sessionExpiresAt}
         userId={USER_ID}
       />
     </View>

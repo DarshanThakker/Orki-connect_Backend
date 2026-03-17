@@ -344,7 +344,9 @@ export class OrkiConnect {
     onSigned?: () => void,
     walletId?: WalletType
   ): Promise<TransactionResult> {
-    if (!this.walletPubKey) return { error: "Wallet not connected" };
+    // EVM wallets (MetaMask, Coinbase, etc.) don't have a connect step, so walletPubKey
+    // is not set for them. Skip the guard when a chainId is present (EVM path).
+    if (!this.walletPubKey && !token?.chainId) return { error: "Wallet not connected" };
 
     // Route to EVM path when a chainId is supplied
     if (token?.chainId) {
@@ -352,7 +354,7 @@ export class OrkiConnect {
     }
 
     // Solana / Phantom path
-    if (!this.sharedSecret || !this.dappKeypair || !this.session) {
+    if (!this.sharedSecret || !this.dappKeypair || !this.session || !this.walletPubKey) {
       return { error: "Phantom session not established — please reconnect" };
     }
 
