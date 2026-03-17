@@ -6,11 +6,9 @@
     "outDir": "dist",
 
     // Environment Settings
-    // See also https://aka.ms/tsconfig/module
-    "module": "NodeNext",
+    "module": "CommonJS",
     "target": "es2022",
-    "moduleResolution": "NodeNext",
-    // and npm install -D @types/node
+    "moduleResolution": "Node",
 
     // Other Outputs
     "sourceMap": true,
@@ -31,9 +29,7 @@
 
     // Recommended Options
     "strict": true,
-    "jsx": "react-jsx",
     "isolatedModules": true,
-    "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
     "resolveJsonModule": true,

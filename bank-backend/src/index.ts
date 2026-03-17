@@ -9,13 +9,13 @@ import balanceRouter from './routes/balance.js';
 import sessionRouter from './routes/session.js';
 
 const app = express();
-const PORT = process.env.PORT ?? 4000;
+const PORT = process.env.PORT ?? 5000;
 
 app.use(morgan('dev'));
 app.use(express.json());
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.post('/webhook', webhookRouter);
+app.use('/webhook', webhookRouter);
 app.use('/api/balance', balanceRouter);
 app.use('/api/session', sessionRouter);
 
@@ -30,8 +30,10 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 
 app.listen(PORT, () => {
   console.log(`bank-backend running on http://localhost:${PORT}`);
-  console.log(`  POST /webhook               — receive Orki events`);
-  console.log(`  GET  /api/balance           — all user balances`);
-  console.log(`  GET  /api/balance/:userId   — single user balance`);
-  console.log(`  GET  /api/balance/:userId/transactions`);
+  console.log(`  POST /webhook                          — receive Orki events`);
+  console.log(`  POST /api/session                      — create Orki session`);
+  console.log(`  GET  /api/balance                      — all user balances`);
+  console.log(`  GET  /api/balance/:userId              — single user balance`);
+  console.log(`  GET  /api/balance/:userId/transactions — user transaction history`);
+  console.log(`  GET  /health                           — health check`);
 });
