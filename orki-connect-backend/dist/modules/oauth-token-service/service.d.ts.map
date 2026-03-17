@@ -1,1 +1,0 @@
-{"version":3,"file":"service.d.ts","sourceRoot":"","sources":["../../../src/modules/oauth-token-service/service.ts"],"names":[],"mappings":"AAAA;;;;;;;;GAQG;AAEH,OAAO,GAAG,MAAM,cAAc,CAAC;AAO/B;;GAEG;AACH,wBAAsB,gBAAgB,CAAC,SAAS,EAAE,MAAM,EAAE,aAAa,EAAE,MAAM;;;;GAiC9E;AAED;;GAEG;AACH,wBAAgB,iBAAiB,CAAC,KAAK,EAAE,MAAM,2BAgB9C"}
