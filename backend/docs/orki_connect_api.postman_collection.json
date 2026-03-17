@@ -2,39 +2,83 @@
     "info": {
         "_postman_id": "77a8b417-eb6c-48f2-8961-c88f11d14849",
         "name": "Orki Connect API",
-        "description": "Orki Connect B2B SDK Backend — UAE/MENA Fintech API",
+        "description": "Orki Connect B2B SDK Backend — UAE/MENA Fintech API\n\n## Quick Start\n1. Set `baseUrl` to `http://localhost:3000`\n2. Run **Issue Access Token** — saves `accessToken` automatically\n3. Run **Create Session** — saves `sessionId`, `sessionJwt`, `refreshToken` automatically\n4. Use `sessionJwt` for session-scoped endpoints (Submit Transaction)\n\n## Variable Reference\n| Variable | Description |\n|---|---|\n| `baseUrl` | API base URL |\n| `accessToken` | Bearer token from `/oauth/token` (1 h) |\n| `sessionId` | Active session ID |\n| `sessionJwt` | Session JWT (18 min) — session-scoped endpoints |\n| `refreshToken` | Refresh token (24 h) — used to renew sessionJwt |",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
     },
     "item": [
+        {
+            "name": "Health",
+            "item": [
+                {
+                    "name": "Health Check",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/health",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["health"]
+                        },
+                        "description": "Returns server status, version, and timestamp. No auth required."
+                    },
+                    "response": [
+                        {
+                            "name": "200 OK",
+                            "originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] } },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "body": "{\n    \"status\": \"ok\",\n    \"version\": \"1.0.0\",\n    \"timestamp\": \"2025-01-01T00:00:00.000Z\"\n}"
+                        }
+                    ]
+                }
+            ]
+        },
         {
             "name": "OAuth",
             "item": [
                 {
                     "name": "Issue Access Token",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "const res = pm.response.json();",
+                                    "if (res.access_token) {",
+                                    "    pm.collectionVariables.set('accessToken', res.access_token);",
+                                    "    console.log('accessToken saved');",
+                                    "}"
+                                ]
+                            }
+                        }
+                    ],
                     "request": {
                         "method": "POST",
                         "header": [],
                         "body": {
                             "mode": "raw",
                             "raw": "{\n    \"client_id\": \"your_client_id\",\n    \"client_secret\": \"your_client_secret\",\n    \"grant_type\": \"client_credentials\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
+                            "options": { "raw": { "language": "json" } }
                         },
                         "url": {
                             "raw": "{{baseUrl}}/oauth/token",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "oauth",
-                                "token"
-                            ]
-                        }
+                            "host": ["{{baseUrl}}"],
+                            "path": ["oauth", "token"]
+                        },
+                        "description": "Exchange client credentials for a bearer access token (valid 1 hour).\n\nThe test script automatically saves `accessToken` to collection variables."
                     },
-                    "response": []
+                    "response": [
+                        {
+                            "name": "200 OK",
+                            "originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{baseUrl}}/oauth/token", "host": ["{{baseUrl}}"], "path": ["oauth", "token"] } },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "body": "{\n    \"access_token\": \"eyJhbGciOiJSUzI1NiJ9...\",\n    \"token_type\": \"Bearer\",\n    \"expires_in\": 3600\n}"
+                        }
+                    ]
                 }
             ]
         },
@@ -48,92 +92,85 @@
                         "header": [],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n    \"organization_id\": \"org_123\",\n    \"client_id\": \"client_456\",\n    \"client_secret\": \"secret_789\",\n    \"webhook_url\": \"https://your-api.com/webhooks\",\n    \"config\": {}\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
+                            "raw": "{\n    \"organization_id\": \"org_123\",\n    \"client_id\": \"client_456\",\n    \"client_secret\": \"secret_789\",\n    \"webhook_url\": \"https://your-api.com/webhooks\",\n    \"config\": {\n        \"supported_chains\": [\"ETHEREUM\", \"SOLANA\"],\n        \"supported_tokens\": [\"USDC\", \"USDT\"],\n        \"compliance_mode\": \"LITE\",\n        \"min_per_transaction\": 1,\n        \"max_per_transaction\": 10000,\n        \"daily_user_limit\": 50000,\n        \"connection_methods\": [\"WALLET\", \"EXCHANGE\"]\n    }\n}",
+                            "options": { "raw": { "language": "json" } }
                         },
                         "url": {
                             "raw": "{{baseUrl}}/v1/org",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "v1",
-                                "org"
-                            ]
-                        }
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "org"]
+                        },
+                        "description": "Register a new organisation. `client_secret` is bcrypt-hashed before storage and cannot be retrieved.\n\nNo auth required (bootstrap endpoint)."
                     },
-                    "response": []
+                    "response": [
+                        {
+                            "name": "201 Created",
+                            "originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{baseUrl}}/v1/org", "host": ["{{baseUrl}}"], "path": ["v1", "org"] } },
+                            "status": "Created",
+                            "code": 201,
+                            "_postman_previewlanguage": "json",
+                            "body": "{\n    \"organization_id\": \"org_123\",\n    \"client_id\": \"client_456\"\n}"
+                        }
+                    ]
                 },
                 {
                     "name": "Get Org Config",
                     "request": {
                         "auth": {
                             "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{accessToken}}",
-                                    "type": "string"
-                                }
-                            ]
+                            "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
                         },
                         "method": "GET",
                         "header": [],
                         "url": {
                             "raw": "{{baseUrl}}/v1/org/config",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "v1",
-                                "org",
-                                "config"
-                            ]
-                        }
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "org", "config"]
+                        },
+                        "description": "Returns current org config. Response is cached in Redis for 5 minutes."
                     },
-                    "response": []
+                    "response": [
+                        {
+                            "name": "200 OK",
+                            "originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/v1/org/config", "host": ["{{baseUrl}}"], "path": ["v1", "org", "config"] } },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "body": "{\n    \"supported_chains\": [\"ETHEREUM\", \"SOLANA\"],\n    \"supported_tokens\": [\"USDC\", \"USDT\"],\n    \"compliance_mode\": \"LITE\",\n    \"min_per_transaction\": 1,\n    \"max_per_transaction\": 10000,\n    \"daily_user_limit\": 50000,\n    \"connection_methods\": [\"WALLET\", \"EXCHANGE\"],\n    \"webhook_url\": \"https://your-api.com/webhooks\"\n}"
+                        }
+                    ]
                 },
                 {
                     "name": "Update Org Config",
                     "request": {
                         "auth": {
                             "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{accessToken}}",
-                                    "type": "string"
-                                }
-                            ]
+                            "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
                         },
                         "method": "PATCH",
                         "header": [],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n    \"supported_tokens\": [\"USDC\", \"USDT\"],\n    \"min_per_transaction\": 5\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
+                            "raw": "{\n    \"supported_tokens\": [\"USDC\", \"USDT\"],\n    \"supported_chains\": [\"ETHEREUM\", \"POLYGON\", \"SOLANA\"],\n    \"min_per_transaction\": 5,\n    \"max_per_transaction\": 20000,\n    \"daily_user_limit\": 100000,\n    \"compliance_mode\": \"VALIDATE\",\n    \"connection_methods\": [\"WALLET\", \"EXCHANGE\"]\n}",
+                            "options": { "raw": { "language": "json" } }
                         },
                         "url": {
                             "raw": "{{baseUrl}}/v1/org/config",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "v1",
-                                "org",
-                                "config"
-                            ]
-                        }
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "org", "config"]
+                        },
+                        "description": "Partial update — only provided fields are changed. Invalidates Redis cache on success.\n\n**compliance_mode:** `LITE` | `VALIDATE`\n**connection_methods:** `WALLET` | `EXCHANGE`\n**supported_chains:** `ETHEREUM` | `POLYGON` | `SOLANA`\n**supported_tokens:** `USDC` | `USDT`"
                     },
-                    "response": []
+                    "response": [
+                        {
+                            "name": "200 OK",
+                            "originalRequest": { "method": "PATCH", "header": [], "url": { "raw": "{{baseUrl}}/v1/org/config", "host": ["{{baseUrl}}"], "path": ["v1", "org", "config"] } },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "body": "{\n    \"supported_tokens\": [\"USDC\", \"USDT\"],\n    \"supported_chains\": [\"ETHEREUM\", \"POLYGON\", \"SOLANA\"],\n    \"min_per_transaction\": 5,\n    \"max_per_transaction\": 20000,\n    \"daily_user_limit\": 100000,\n    \"compliance_mode\": \"VALIDATE\",\n    \"connection_methods\": [\"WALLET\", \"EXCHANGE\"]\n}"
+                        }
+                    ]
                 }
             ]
         },
@@ -141,78 +178,197 @@
             "name": "Connect Sessions",
             "item": [
                 {
-                    "name": "Create Session",
+                    "name": "Create Session (API Auth)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "const res = pm.response.json();",
+                                    "if (res.session_id) pm.collectionVariables.set('sessionId', res.session_id);",
+                                    "if (res.session_jwt) pm.collectionVariables.set('sessionJwt', res.session_jwt);",
+                                    "if (res.refresh_token) pm.collectionVariables.set('refreshToken', res.refresh_token);",
+                                    "console.log('sessionId, sessionJwt, refreshToken saved');"
+                                ]
+                            }
+                        }
+                    ],
                     "request": {
                         "auth": {
                             "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{accessToken}}",
-                                    "type": "string"
-                                }
-                            ]
+                            "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
                         },
                         "method": "POST",
                         "header": [],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n    \"user_id\": \"user_01\",\n    \"deposit_address\": \"0x...\",\n    \"network\": \"ETHEREUM\",\n    \"token\": \"USDC\",\n    \"mode\": \"LITE\",\n    \"connection_type\": \"WALLET\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
+                            "raw": "{\n    \"user_id\": \"user_01\",\n    \"deposit_address\": \"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045\",\n    \"network\": \"ETHEREUM\",\n    \"token\": \"USDC\",\n    \"mode\": \"LITE\",\n    \"connection_type\": \"WALLET\"\n}",
+                            "options": { "raw": { "language": "json" } }
                         },
                         "url": {
                             "raw": "{{baseUrl}}/v1/connect/sessions",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "v1",
-                                "connect",
-                                "sessions"
-                            ]
-                        }
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "connect", "sessions"]
+                        },
+                        "description": "Create a session using a server-side API access token (backend-to-backend).\n\nReturns `session_jwt` (18 min) and `refresh_token` (24 h). Test script auto-saves both.\n\n**mode:** `LITE` | `VALIDATE` (VALIDATE requires `kyc_name` when `connection_type` is `EXCHANGE`)\n**network:** `ETHEREUM` | `POLYGON` | `SOLANA`\n**token:** `USDC` | `USDT`\n**connection_type:** `WALLET` | `EXCHANGE`"
                     },
-                    "response": []
+                    "response": [
+                        {
+                            "name": "201 Created",
+                            "originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{baseUrl}}/v1/connect/sessions", "host": ["{{baseUrl}}"], "path": ["v1", "connect", "sessions"] } },
+                            "status": "Created",
+                            "code": 201,
+                            "_postman_previewlanguage": "json",
+                            "body": "{\n    \"session_id\": \"sess_a1b2c3d4e5f6\",\n    \"session_jwt\": \"eyJhbGciOiJSUzI1NiJ9...\",\n    \"refresh_token\": \"eyJhbGciOiJSUzI1NiJ9...\",\n    \"expires_at\": \"2025-01-01T00:15:00.000Z\"\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Create Session (Public / SDK)",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "const res = pm.response.json();",
+                                    "if (res.session_id) pm.collectionVariables.set('sessionId', res.session_id);",
+                                    "if (res.session_jwt) pm.collectionVariables.set('sessionJwt', res.session_jwt);",
+                                    "if (res.refresh_token) pm.collectionVariables.set('refreshToken', res.refresh_token);"
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"client_id\": \"client_456\",\n    \"user_id\": \"user_01\",\n    \"deposit_address\": \"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045\",\n    \"network\": \"ETHEREUM\",\n    \"token\": \"USDC\",\n    \"mode\": \"LITE\",\n    \"connection_type\": \"WALLET\"\n}",
+                            "options": { "raw": { "language": "json" } }
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/connect/public/sessions",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "connect", "public", "sessions"]
+                        },
+                        "description": "Create a session from the frontend or SDK using only the public `client_id` (no secret required). The server resolves the org by `client_id`.\n\nNo auth header needed — designed for client-side SDK initialisation."
+                    },
+                    "response": [
+                        {
+                            "name": "201 Created",
+                            "originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{baseUrl}}/v1/connect/public/sessions", "host": ["{{baseUrl}}"], "path": ["v1", "connect", "public", "sessions"] } },
+                            "status": "Created",
+                            "code": 201,
+                            "_postman_previewlanguage": "json",
+                            "body": "{\n    \"session_id\": \"sess_a1b2c3d4e5f6\",\n    \"session_jwt\": \"eyJhbGciOiJSUzI1NiJ9...\",\n    \"refresh_token\": \"eyJhbGciOiJSUzI1NiJ9...\",\n    \"expires_at\": \"2025-01-01T00:15:00.000Z\"\n}"
+                        }
+                    ]
                 },
                 {
                     "name": "Get Session",
                     "request": {
                         "auth": {
                             "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{accessToken}}",
-                                    "type": "string"
-                                }
-                            ]
+                            "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
                         },
                         "method": "GET",
                         "header": [],
                         "url": {
                             "raw": "{{baseUrl}}/v1/connect/sessions/:session_id",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "v1",
-                                "connect",
-                                "sessions",
-                                ":session_id"
-                            ],
-                            "variable": [
-                                {
-                                    "key": "session_id",
-                                    "value": "{{sessionId}}"
-                                }
-                            ]
-                        }
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "connect", "sessions", ":session_id"],
+                            "variable": [{ "key": "session_id", "value": "{{sessionId}}" }]
+                        },
+                        "description": "Fetch session state. Org-scoped — returns 403 if the session belongs to a different org.\n\nReads are cached in Redis for 2 minutes."
                     },
-                    "response": []
+                    "response": [
+                        {
+                            "name": "200 OK",
+                            "originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/v1/connect/sessions/:session_id", "host": ["{{baseUrl}}"], "path": ["v1", "connect", "sessions", ":session_id"] } },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "body": "{\n    \"session_id\": \"sess_a1b2c3d4e5f6\",\n    \"organization_id\": \"org_123\",\n    \"user_id\": \"user_01\",\n    \"deposit_address\": \"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045\",\n    \"network\": \"ETHEREUM\",\n    \"token\": \"USDC\",\n    \"mode\": \"LITE\",\n    \"connection_type\": \"WALLET\",\n    \"status\": \"CREATED\",\n    \"tx_hash\": null,\n    \"expires_at\": \"2025-01-01T00:15:00.000Z\"\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Refresh Session",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "type": "text/javascript",
+                                "exec": [
+                                    "const res = pm.response.json();",
+                                    "if (res.session_jwt) {",
+                                    "    pm.collectionVariables.set('sessionJwt', res.session_jwt);",
+                                    "    console.log('sessionJwt refreshed');",
+                                    "}"
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"refresh_token\": \"{{refreshToken}}\"\n}",
+                            "options": { "raw": { "language": "json" } }
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/connect/sessions/refresh",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "connect", "sessions", "refresh"]
+                        },
+                        "description": "Exchange a `refresh_token` (24 h) for a new `session_jwt` (18 min). Also reactivates an expired session.\n\nTest script auto-saves the new `sessionJwt`."
+                    },
+                    "response": [
+                        {
+                            "name": "200 OK",
+                            "originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{baseUrl}}/v1/connect/sessions/refresh", "host": ["{{baseUrl}}"], "path": ["v1", "connect", "sessions", "refresh"] } },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "body": "{\n    \"session_id\": \"sess_a1b2c3d4e5f6\",\n    \"session_jwt\": \"eyJhbGciOiJSUzI1NiJ9...\",\n    \"expires_at\": \"2025-01-01T00:30:00.000Z\"\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Submit Transaction",
+                    "request": {
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [{ "key": "token", "value": "{{sessionJwt}}", "type": "string" }]
+                        },
+                        "method": "POST",
+                        "header": [],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"tx_hash\": \"0xabc123def456abc123def456abc123def456abc123def456abc123def456abc1\",\n    \"amount\": \"100.00\",\n    \"token\": \"USDC\",\n    \"network\": \"ETHEREUM\"\n}",
+                            "options": { "raw": { "language": "json" } }
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/v1/connect/sessions/:session_id/transactions",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "connect", "sessions", ":session_id", "transactions"],
+                            "variable": [{ "key": "session_id", "value": "{{sessionId}}" }]
+                        },
+                        "description": "Submit an on-chain transaction hash. Requires the **session JWT** (`sessionJwt`), NOT the access token.\n\nReturns `202 Accepted` immediately. Confirmation polling runs asynchronously — a `connect.deposits.confirmed` webhook fires when the required confirmations are reached.\n\n**Confirmation thresholds:**\n- Ethereum: 12 blocks (~2.5 min)\n- Solana: 32 slots (~15 sec)\n- Polygon: 128 blocks (~4 min)"
+                    },
+                    "response": [
+                        {
+                            "name": "202 Accepted",
+                            "originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{baseUrl}}/v1/connect/sessions/:session_id/transactions", "host": ["{{baseUrl}}"], "path": ["v1", "connect", "sessions", ":session_id", "transactions"] } },
+                            "status": "Accepted",
+                            "code": 202,
+                            "_postman_previewlanguage": "json",
+                            "body": "{\n    \"accepted\": true,\n    \"session_id\": \"sess_a1b2c3d4e5f6\"\n}"
+                        }
+                    ]
                 }
             ]
         },
@@ -220,32 +376,20 @@
             "name": "Exchange OAuth",
             "item": [
                 {
-                    "name": "Authorize Redirect",
+                    "name": "Authorize (Redirect to Exchange)",
                     "request": {
                         "method": "GET",
                         "header": [],
                         "url": {
                             "raw": "{{baseUrl}}/v1/connect/oauth/authorize?exchange=coinbase&session_id={{sessionId}}",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "v1",
-                                "connect",
-                                "oauth",
-                                "authorize"
-                            ],
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "connect", "oauth", "authorize"],
                             "query": [
-                                {
-                                    "key": "exchange",
-                                    "value": "coinbase"
-                                },
-                                {
-                                    "key": "session_id",
-                                    "value": "{{sessionId}}"
-                                }
+                                { "key": "exchange", "value": "coinbase", "description": "coinbase | binance" },
+                                { "key": "session_id", "value": "{{sessionId}}" }
                             ]
-                        }
+                        },
+                        "description": "Redirects the user's browser to the exchange OAuth authorization page. Open in a browser — Postman will follow the redirect but the exchange will reject it.\n\n**exchange values:** `coinbase` | `binance`"
                     },
                     "response": []
                 },
@@ -256,30 +400,15 @@
                         "header": [],
                         "url": {
                             "raw": "{{baseUrl}}/v1/connect/oauth/callback?exchange=coinbase&state={{sessionId}}&code=auth_code_here",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "v1",
-                                "connect",
-                                "oauth",
-                                "callback"
-                            ],
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "connect", "oauth", "callback"],
                             "query": [
-                                {
-                                    "key": "exchange",
-                                    "value": "coinbase"
-                                },
-                                {
-                                    "key": "state",
-                                    "value": "{{sessionId}}"
-                                },
-                                {
-                                    "key": "code",
-                                    "value": "auth_code_here"
-                                }
+                                { "key": "exchange", "value": "coinbase" },
+                                { "key": "state", "value": "{{sessionId}}", "description": "session_id encoded as state" },
+                                { "key": "code", "value": "auth_code_here", "description": "Authorization code from exchange" }
                             ]
-                        }
+                        },
+                        "description": "Called by the exchange after the user approves access. Exchanges the `code` for an access token, stores it in the vault, runs identity matching (if `compliance_mode` is `VALIDATE`), and fires the appropriate webhook.\n\nThis endpoint is called by the exchange redirect, not your frontend."
                     },
                     "response": []
                 },
@@ -288,39 +417,32 @@
                     "request": {
                         "auth": {
                             "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{accessToken}}",
-                                    "type": "string"
-                                }
-                            ]
+                            "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
                         },
                         "method": "POST",
                         "header": [],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n    \"session_id\": \"{{sessionId}}\",\n    \"amount\": \"100.0\",\n    \"token\": \"USDC\"\n}",
-                            "options": {
-                                "raw": {
-                                    "language": "json"
-                                }
-                            }
+                            "raw": "{\n    \"session_id\": \"{{sessionId}}\",\n    \"amount\": \"100.00\",\n    \"token\": \"USDC\"\n}",
+                            "options": { "raw": { "language": "json" } }
                         },
                         "url": {
                             "raw": "{{baseUrl}}/v1/connect/oauth/withdraw",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "v1",
-                                "connect",
-                                "oauth",
-                                "withdraw"
-                            ]
-                        }
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "connect", "oauth", "withdraw"]
+                        },
+                        "description": "Trigger a withdrawal from the connected exchange to the session's deposit address. Session must be `ACTIVE` with a connected exchange account."
                     },
-                    "response": []
+                    "response": [
+                        {
+                            "name": "200 OK",
+                            "originalRequest": { "method": "POST", "header": [], "url": { "raw": "{{baseUrl}}/v1/connect/oauth/withdraw", "host": ["{{baseUrl}}"], "path": ["v1", "connect", "oauth", "withdraw"] } },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "body": "{\n    \"withdrawal_id\": \"w_abc123\",\n    \"status\": \"submitted\"\n}"
+                        }
+                    ]
                 }
             ]
         },
@@ -334,86 +456,60 @@
                         "header": [],
                         "url": {
                             "raw": "{{baseUrl}}/v1/webhooks/.well-known/jwks.json",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "v1",
-                                "webhooks",
-                                ".well-known",
-                                "jwks.json"
-                            ]
-                        }
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "webhooks", ".well-known", "jwks.json"]
+                        },
+                        "description": "Public endpoint — no auth required. Returns the RS256 public key in JWK Set format.\n\nConsumers verify incoming webhook signatures against this key:\n```js\nconst token = req.headers.authorization.replace('Bearer ', '');\njwt.verify(token, jwks_public_key, { algorithms: ['RS256'] });\n```"
                     },
-                    "response": []
+                    "response": [
+                        {
+                            "name": "200 OK",
+                            "originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/v1/webhooks/.well-known/jwks.json", "host": ["{{baseUrl}}"], "path": ["v1", "webhooks", ".well-known", "jwks.json"] } },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "body": "{\n    \"keys\": [\n        {\n            \"kty\": \"RSA\",\n            \"use\": \"sig\",\n            \"alg\": \"RS256\",\n            \"kid\": \"orki-webhook-key-1\",\n            \"n\": \"vnS0HaaqgZ32dCGw...\",\n            \"e\": \"AQAB\"\n        }\n    ]\n}"
+                        }
+                    ]
                 },
                 {
                     "name": "Get Delivery Log",
                     "request": {
                         "auth": {
                             "type": "bearer",
-                            "bearer": [
-                                {
-                                    "key": "token",
-                                    "value": "{{accessToken}}",
-                                    "type": "string"
-                                }
-                            ]
+                            "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
                         },
                         "method": "GET",
                         "header": [],
                         "url": {
                             "raw": "{{baseUrl}}/v1/webhooks/delivery-log",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "v1",
-                                "webhooks",
-                                "delivery-log"
-                            ]
-                        }
+                            "host": ["{{baseUrl}}"],
+                            "path": ["v1", "webhooks", "delivery-log"]
+                        },
+                        "description": "Returns last 50 webhook delivery attempts for your org, newest first.\n\nEach entry includes: event, status (`delivered` | `failed` | `dead_letter`), http_status, response_time_ms, error, attempt count."
                     },
-                    "response": []
-                }
-            ]
-        },
-        {
-            "name": "Health Check",
-            "request": {
-                "method": "GET",
-                "header": [],
-                "url": {
-                    "raw": "{{baseUrl}}/health",
-                    "host": [
-                        "{{baseUrl}}"
-                    ],
-                    "path": [
-                        "health"
+                    "response": [
+                        {
+                            "name": "200 OK",
+                            "originalRequest": { "method": "GET", "header": [], "url": { "raw": "{{baseUrl}}/v1/webhooks/delivery-log", "host": ["{{baseUrl}}"], "path": ["v1", "webhooks", "delivery-log"] } },
+                            "status": "OK",
+                            "code": 200,
+                            "_postman_previewlanguage": "json",
+                            "body": "[\n    {\n        \"id\": \"uuid\",\n        \"session_id\": \"sess_a1b2c3d4e5f6\",\n        \"event\": \"connect.deposits.confirmed\",\n        \"idempotency_key\": \"sess_a1b2c3d4e5f6:connect.deposits.confirmed:1\",\n        \"status\": \"delivered\",\n        \"http_status\": 200,\n        \"response_time_ms\": 143,\n        \"attempt\": 1,\n        \"created_at\": \"2025-01-01T00:00:00.000Z\"\n    }\n]"
+                        }
                     ]
                 }
-            },
-            "response": []
+            ]
         }
     ],
     "event": [
         {
             "listen": "prerequest",
-            "script": {
-                "type": "text/javascript",
-                "exec": [
-                    ""
-                ]
-            }
+            "script": { "type": "text/javascript", "exec": [""] }
         },
         {
             "listen": "test",
-            "script": {
-                "type": "text/javascript",
-                "exec": [
-                    ""
-                ]
-            }
+            "script": { "type": "text/javascript", "exec": [""] }
         }
     ],
     "variable": [
@@ -424,13 +520,27 @@
         },
         {
             "key": "accessToken",
-            "value": "your_access_token_here",
-            "type": "string"
+            "value": "",
+            "type": "string",
+            "description": "Set automatically by Issue Access Token"
         },
         {
             "key": "sessionId",
-            "value": "your_session_id_here",
-            "type": "string"
+            "value": "",
+            "type": "string",
+            "description": "Set automatically by Create Session"
+        },
+        {
+            "key": "sessionJwt",
+            "value": "",
+            "type": "string",
+            "description": "Short-lived JWT (18 min). Set automatically by Create Session and Refresh Session. Required for Submit Transaction."
+        },
+        {
+            "key": "refreshToken",
+            "value": "",
+            "type": "string",
+            "description": "Long-lived token (24 h). Set automatically by Create Session. Used by Refresh Session."
         }
     ]
 }
