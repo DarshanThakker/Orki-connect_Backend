@@ -8,31 +8,47 @@ import {
   StatusBar,
 } from "react-native";
 
-import { WalletInfo, OrkiConnect, OrkiConnectModal, solana } from "@/lib/orki-connect-sdk";
-import * as ExpoLinking from 'expo-linking';
+import { OrkiConnect, OrkiConnectModal, solana } from "@/lib/orki-connect-sdk";
+import * as ExpoLinking from "expo-linking";
 
-const WALLETS: WalletInfo[] = [
-  { id: "phantom", name: "Phantom", scheme: "phantom://v1/connect?redirect_link={redirect}" },
-  { id: "metamask", name: "MetaMask", scheme: "metamask://connect?redirect_link={redirect}" },
-  { id: "coinbase", name: "Coinbase", scheme: "cbwallet://connect?redirect_link={redirect}" },
-  { id: "trust", name: "Trust Wallet", scheme: "trust://connect?redirect_link={redirect}" },
-];
+const USER_ID = "darshan_thakker_001";
+const BANK_ADDRESS = "83p8Pmc2jU4by5ZSyhwYEQw7D5YAFz9joC9mnw49NzoP";
+const BANK_BACKEND_URL = process.env.EXPO_PUBLIC_BANK_BACKEND_URL ?? "http://localhost:4000";
 
 const RECENT_TRANSACTIONS = [
-  { id: 1, label: "Salary Credit", amount: "+$4,200.00", date: "Mar 10", type: "credit" },
+  {
+    id: 1,
+    label: "Salary Credit",
+    amount: "+$4,200.00",
+    date: "Mar 10",
+    type: "credit",
+  },
   { id: 2, label: "Netflix", amount: "-$15.99", date: "Mar 9", type: "debit" },
-  { id: 3, label: "Wallet Deposit", amount: "+$320.00", date: "Mar 7", type: "credit" },
-  { id: 4, label: "Grocery Store", amount: "-$87.45", date: "Mar 5", type: "debit" },
+  {
+    id: 3,
+    label: "Wallet Deposit",
+    amount: "+$320.00",
+    date: "Mar 7",
+    type: "credit",
+  },
+  {
+    id: 4,
+    label: "Grocery Store",
+    amount: "-$87.45",
+    date: "Mar 5",
+    type: "debit",
+  },
 ];
 
 // createURL generates the correct scheme for the current environment:
 //   - Expo Go: exp://192.168.x.x:8081/--/wallet-callback
 //   - Standalone build: walletdemo://wallet-callback
-const redirectUrl = ExpoLinking.createURL('wallet-callback');
+const redirectUrl = ExpoLinking.createURL("wallet-callback");
 
 const orkiSDK = new OrkiConnect({
   network: solana.devnet,
   redirectScheme: redirectUrl,
+  backendUrl: process.env.EXPO_PUBLIC_ORKI_BACKEND_URL ?? "http://localhost:3000",
 });
 
 function getGreeting() {
@@ -44,12 +60,41 @@ function getGreeting() {
 
 export default function BankApp() {
   const [depositModalVisible, setDepositModalVisible] = useState(false);
-  const [balance, setBalance] = useState("12,480.52");
+  const [balance, setBalance] = useState("0.00");
   const [hasAgreedBefore, setHasAgreedBefore] = useState(false);
+  const [sessionId, setSessionId] = useState<string | undefined>();
+  const [sessionJwt, setSessionJwt] = useState<string | undefined>();
 
-  const handleDepositSuccess = (txid: string) => {
-    console.log("Deposit success, txid:", txid);
+  const handleDepositSuccess = async (_txid: string) => {
     setDepositModalVisible(false);
+    try {
+      const res = await fetch(`${BANK_BACKEND_URL}/api/balance/${USER_ID}`);
+      if (res.ok) {
+        const data = await res.json() as { balances?: Record<string, number> };
+        const usdc = data.balances?.USDC ?? data.balances?.usdc ?? 0;
+        setBalance(usdc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+      }
+    } catch (err) {
+      console.warn('Could not fetch balance from bank-backend:', err);
+    }
+  };
+
+  const handleDepositPress = async () => {
+    try {
+      const res = await fetch(`${BANK_BACKEND_URL}/api/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: USER_ID, deposit_address: BANK_ADDRESS, network: 'SOLANA', token: 'USDC' }),
+      });
+      if (res.ok) {
+        const data = await res.json() as { session_id: string; session_jwt: string };
+        setSessionId(data.session_id);
+        setSessionJwt(data.session_jwt);
+      }
+    } catch (err) {
+      console.warn('Could not create session:', err);
+    }
+    setDepositModalVisible(true);
   };
 
   return (
@@ -67,8 +112,10 @@ export default function BankApp() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Balance Card */}
         <View style={styles.balanceCard}>
           <View style={styles.cardGlow} />
@@ -96,7 +143,7 @@ export default function BankApp() {
           <View style={styles.actionsRow}>
             <Pressable
               style={styles.actionBtn}
-              onPress={() => setDepositModalVisible(true)}
+              onPress={handleDepositPress}
             >
               <View style={[styles.actionIcon, { backgroundColor: "#1a2a1a" }]}>
                 <Text style={styles.actionEmoji}>⬇️</Text>
@@ -137,30 +184,44 @@ export default function BankApp() {
           </View>
           {RECENT_TRANSACTIONS.map((tx) => (
             <View key={tx.id} style={styles.txRow}>
-              <View style={[styles.txIcon, tx.type === "credit" ? styles.txIconCredit : styles.txIconDebit]}>
+              <View
+                style={[
+                  styles.txIcon,
+                  tx.type === "credit"
+                    ? styles.txIconCredit
+                    : styles.txIconDebit,
+                ]}
+              >
                 <Text>{tx.type === "credit" ? "↓" : "↑"}</Text>
               </View>
               <View style={styles.txInfo}>
                 <Text style={styles.txLabel}>{tx.label}</Text>
                 <Text style={styles.txDate}>{tx.date}</Text>
               </View>
-              <Text style={[styles.txAmount, tx.type === "credit" ? styles.txCredit : styles.txDebit]}>
+              <Text
+                style={[
+                  styles.txAmount,
+                  tx.type === "credit" ? styles.txCredit : styles.txDebit,
+                ]}
+              >
                 {tx.amount}
               </Text>
             </View>
           ))}
         </View>
-
       </ScrollView>
 
       <OrkiConnectModal
         visible={depositModalVisible}
         onClose={() => setDepositModalVisible(false)}
-        bankAddress="83p8Pmc2jU4by5ZSyhwYEQw7D5YAFz9joC9mnw49NzoP"
+        bankAddress={BANK_ADDRESS}
         sdk={orkiSDK}
         onSuccess={handleDepositSuccess}
         hasAgreedBefore={hasAgreedBefore}
         onAgreementAccepted={() => setHasAgreedBefore(true)}
+        sessionId={sessionId}
+        sessionJwt={sessionJwt}
+        userId={USER_ID}
       />
     </View>
   );
@@ -212,30 +273,77 @@ const styles = StyleSheet.create({
     backgroundColor: "#2ecc71",
     opacity: 0.06,
   },
-  balanceLabel: { fontSize: 13, color: "#555", fontWeight: "500", marginBottom: 8 },
-  balanceAmount: { fontSize: 40, color: "#fff", fontWeight: "800", marginBottom: 20, letterSpacing: -1 },
+  balanceLabel: {
+    fontSize: 13,
+    color: "#555",
+    fontWeight: "500",
+    marginBottom: 8,
+  },
+  balanceAmount: {
+    fontSize: 40,
+    color: "#fff",
+    fontWeight: "800",
+    marginBottom: 20,
+    letterSpacing: -1,
+  },
   cardRow: { flexDirection: "row", alignItems: "center", marginBottom: 20 },
   cardStat: { flex: 1 },
   cardStatLabel: { fontSize: 12, color: "#555", marginBottom: 4 },
   cardStatValue: { fontSize: 16, color: "#2ecc71", fontWeight: "700" },
   cardStatValueRed: { fontSize: 16, color: "#e74c3c", fontWeight: "700" },
-  cardDivider: { width: 1, height: 32, backgroundColor: "#1e1e1e", marginHorizontal: 16 },
+  cardDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: "#1e1e1e",
+    marginHorizontal: 16,
+  },
   cardNumber: { borderTopWidth: 1, borderTopColor: "#1e1e1e", paddingTop: 16 },
   cardNumberText: { color: "#333", fontSize: 13, letterSpacing: 2 },
 
   section: { paddingHorizontal: 24, marginBottom: 28 },
-  sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
-  sectionTitle: { fontSize: 17, color: "#fff", fontWeight: "700", marginBottom: 16 },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 17,
+    color: "#fff",
+    fontWeight: "700",
+    marginBottom: 16,
+  },
   seeAll: { fontSize: 13, color: "#2ecc71" },
 
   actionsRow: { flexDirection: "row", justifyContent: "space-between" },
   actionBtn: { alignItems: "center", gap: 8 },
-  actionIcon: { width: 58, height: 58, borderRadius: 18, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#1e1e1e" },
+  actionIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#1e1e1e",
+  },
   actionEmoji: { fontSize: 22 },
   actionLabel: { fontSize: 12, color: "#888", fontWeight: "500" },
 
-  txRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#111" },
-  txIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", marginRight: 14 },
+  txRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#111",
+  },
+  txIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 14,
+  },
   txIconCredit: { backgroundColor: "#0d2a1a" },
   txIconDebit: { backgroundColor: "#2a0d0d" },
   txInfo: { flex: 1 },

@@ -1,6 +1,6 @@
-start:
+start: import-lib
 	npm run start
 
 import-lib:
-	rm -rf lib/orki-connect-sdk
-	cp -R ../orki-connect-sdk/src lib/orki-connect-sdk
+	rm -rf lib/sdk
+	cp -R ../sdk/src lib/orki-connect-sdk
