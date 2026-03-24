@@ -34,9 +34,18 @@ export async function getAccountProfile(access_token: string) {
 }
 
 export async function getDepositAddress(access_token: string) {
-  const response = await axios.get(`${BASE_URL}/v2/accounts`, { headers: { Authorization: `Bearer ${access_token}` } });
-  const usdcAccount = response.data.data.find((a: any) => a.currency?.code === 'USDC');
-  return usdcAccount?.primary_address || null;
+  const accountsRes = await axios.get(`${BASE_URL}/v2/accounts`, { headers: { Authorization: `Bearer ${access_token}` } });
+  const usdcAccount = accountsRes.data.data.find((a: any) => a.currency?.code === 'USDC');
+  if (!usdcAccount) return null;
+
+  // Generate a deposit address via the Coinbase v2 addresses endpoint.
+  // primary_address is not returned by the accounts list — this is the correct way.
+  const addrRes = await axios.post(
+    `${BASE_URL}/v2/accounts/${usdcAccount.id}/addresses`,
+    {},
+    { headers: { Authorization: `Bearer ${access_token}` } }
+  );
+  return addrRes.data.data.address || null;
 }
 
 export async function getWithdrawalFee(_access_token: string, _asset: string): Promise<number> {

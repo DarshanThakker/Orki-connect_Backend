@@ -1,15 +1,11 @@
 import { Router, Request, Response } from 'express';
+import { config } from '../config';
 
 const router = Router();
 
 // POST /api/session — creates an Orki Connect session on behalf of the bank app
+// Deposit address is inferred by Orki backend from the org's registered deposit addresses
 router.post('/', async (req: Request, res: Response) => {
-  // Read env at request time — module-level constants capture before dotenv runs in ESM
-  const ORKI_BACKEND_URL = process.env.ORKI_BACKEND_URL ?? 'http://localhost:3000';
-  const ORKI_ORG_ACCESS_TOKEN = process.env.ORKI_ORG_ACCESS_TOKEN ?? '';
-  const ORKI_SOLANA_DEPOSIT_ADDRESS = process.env.ORKI_SOLANA_DEPOSIT_ADDRESS ?? '';
-  const ORKI_EVM_DEPOSIT_ADDRESS = process.env.ORKI_EVM_DEPOSIT_ADDRESS;
-
   const { user_id, network = 'SOLANA', token = 'USDC' } = req.body;
 
   if (!user_id) {
@@ -17,19 +13,13 @@ router.post('/', async (req: Request, res: Response) => {
     return;
   }
 
-  const response = await fetch(`${ORKI_BACKEND_URL}/v1/connect/sessions`, {
+  const response = await fetch(`${config.ORKI_BACKEND_URL}/v1/connect/sessions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${ORKI_ORG_ACCESS_TOKEN}`,
+      'Authorization': `Bearer ${config.ORKI_ORG_ACCESS_TOKEN}`,
     },
-    body: JSON.stringify({
-      user_id,
-      deposit_address: ORKI_SOLANA_DEPOSIT_ADDRESS,
-      ...(ORKI_EVM_DEPOSIT_ADDRESS && { evm_deposit_address: ORKI_EVM_DEPOSIT_ADDRESS }),
-      network,
-      token,
-    }),
+    body: JSON.stringify({ user_id, network, token }),
   });
 
   const data = await response.json() as any;
@@ -39,7 +29,7 @@ router.post('/', async (req: Request, res: Response) => {
     return;
   }
 
-  res.status(201).json(data); // { session_id, session_jwt, expires_at, deposit_address, evm_deposit_address? }
+  res.status(201).json(data); // { session_id, session_jwt, expires_at, deposit_address }
 });
 
 export default router;

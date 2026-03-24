@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { createOrg, getOrgConfig, updateOrgConfig } from '../../../application/org/org.service';
+import { createOrg, getOrgConfig, updateOrgConfig, updateDepositAddresses } from '../../../application/org/org.service';
 
 export async function postOrg(req: Request, res: Response, next: NextFunction) {
   try {
@@ -20,5 +20,16 @@ export async function getConfig(req: any, res: Response, next: NextFunction) {
 export async function patchConfig(req: any, res: Response, next: NextFunction) {
   try {
     res.json(await updateOrgConfig(req.org_id, req.body));
+  } catch (err) { next(err); }
+}
+
+export async function putDepositAddresses(req: any, res: Response, next: NextFunction) {
+  try {
+    const { addresses } = req.body;
+    if (!addresses || typeof addresses !== 'object') {
+      return res.status(400).json({ error: 'addresses object is required', code: 'MISSING_ADDRESSES' });
+    }
+    const updated = await updateDepositAddresses(req.org_id, addresses);
+    res.json({ deposit_addresses: updated });
   } catch (err) { next(err); }
 }

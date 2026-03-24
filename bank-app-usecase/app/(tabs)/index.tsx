@@ -8,11 +8,11 @@ import {
   StatusBar,
 } from "react-native";
 
-import { OrkiConnect, OrkiConnectModal, solana } from "@/lib/orki-connect-sdk";
+import { OrkiConnect, OrkiConnectWidget, solana } from "@/lib/orki-connect-sdk";
 import * as ExpoLinking from "expo-linking";
 
 const USER_ID = process.env.EXPO_PUBLIC_USER_ID ?? "darshan_thakker_001";
-const BANK_BACKEND_URL = process.env.EXPO_PUBLIC_BANK_BACKEND_URL ?? "http://localhost:5000";
+const BANK_BACKEND_URL = process.env.EXPO_PUBLIC_BANK_BACKEND_URL;
 
 const RECENT_TRANSACTIONS = [
   {
@@ -63,9 +63,13 @@ export default function BankApp() {
   const [hasAgreedBefore, setHasAgreedBefore] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>();
   const [sessionJwt, setSessionJwt] = useState<string | undefined>();
-  const [sessionExpiresAt, setSessionExpiresAt] = useState<string | undefined>();
+  const [sessionExpiresAt, setSessionExpiresAt] = useState<
+    string | undefined
+  >();
   const [solanaDepositAddress, setSolanaDepositAddress] = useState<string>("");
-  const [evmDepositAddress, setEvmDepositAddress] = useState<string | undefined>();
+  const [evmDepositAddress, setEvmDepositAddress] = useState<
+    string | undefined
+  >();
 
   const handleDepositSuccess = async (_txid: string) => {
     setDepositModalVisible(false);
@@ -93,7 +97,11 @@ export default function BankApp() {
       const res = await fetch(`${BANK_BACKEND_URL}/api/session`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: USER_ID, network: "SOLANA", token: "USDC" }),
+        body: JSON.stringify({
+          user_id: USER_ID,
+          network: "SOLANA",
+          token: "USDC",
+        }),
       });
       if (res.ok) {
         const data = (await res.json()) as {
@@ -226,7 +234,7 @@ export default function BankApp() {
         </View>
       </ScrollView>
 
-      <OrkiConnectModal
+      <OrkiConnectWidget
         visible={depositModalVisible}
         onClose={() => setDepositModalVisible(false)}
         solanaDepositAddress={solanaDepositAddress}

@@ -8,6 +8,7 @@ import {
   findOrgByCredentials,
   createOrg as dbCreateOrg,
   updateOrgConfig as dbUpdateOrgConfig,
+  updateOrgWebhookUrl as dbUpdateOrgWebhookUrl,
 } from '../../infrastructure/database/repositories/org.repository';
 
 export { findOrgByClientId, findOrgByCredentials };
@@ -46,6 +47,12 @@ export async function createOrg(params: {
   const org = await dbCreateOrg({ ...rest, config: { ...DEFAULT_ORG_CONFIG, ...config } });
   logger.info('Organisation created', { organization_id: params.organization_id });
   return org;
+}
+
+export async function updateWebhookUrl(organization_id: string, webhook_url: string) {
+  await dbUpdateOrgWebhookUrl(organization_id, webhook_url);
+  await redis.del(orgConfigCacheKey(organization_id));
+  logger.info('Org webhook URL updated', { organization_id, webhook_url });
 }
 
 export async function updateDepositAddresses(organization_id: string, addresses: Partial<Record<string, string>>) {

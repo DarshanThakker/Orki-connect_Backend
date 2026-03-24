@@ -1,13 +1,25 @@
-import { StyleSheet, Dimensions } from "react-native";
+import { StyleSheet, Dimensions, Platform } from "react-native";
+
+// Bottom safe-area padding — on iOS add extra spacing so content clears the home indicator
+export const BOTTOM_INSET = Platform.OS === "ios" ? 34 : 0;
 
 export const PURPLE = "#6334f5";
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 export const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
+  // ── Widget overlay ──
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+  } as const,
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "flex-end",
+  } as const,
+  widgetPanel: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
   },
   container: {
     backgroundColor: "#fff",

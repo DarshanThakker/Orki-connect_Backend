@@ -1,5 +1,5 @@
 import { Chain, ConnectionType, ComplianceMode } from '@prisma/client';
-import { createOrg, findOrgByClientId } from './application/org/org.service';
+import { createOrg, findOrgByClientId, updateWebhookUrl } from './application/org/org.service';
 import { issueAccessToken } from './application/auth/auth.service';
 import { logger } from './utils/logger';
 
@@ -7,7 +7,7 @@ const SEED_ORG = {
   organization_id: 'org_bank_demo',
   client_id:       'bank_demo_client',
   client_secret:   'bank_demo_secret_dev',
-  webhook_url:     'http://localhost:4000/webhook',
+  webhook_url:     'http://localhost:5000/webhook',
   config: {
     supported_tokens:    ['USDC', 'USDT'],
     supported_chains:    [Chain.SOLANA, Chain.ETHEREUM],
@@ -25,6 +25,7 @@ export async function runSeed() {
 
   if (existing) {
     logger.info('Seed org already exists — skipping creation', { organization_id: SEED_ORG.organization_id });
+    await updateWebhookUrl(SEED_ORG.organization_id, SEED_ORG.webhook_url);
   } else {
     await createOrg(SEED_ORG);
     logger.info('Seed org created', { organization_id: SEED_ORG.organization_id });

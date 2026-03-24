@@ -18,6 +18,15 @@ import {
   clusterApiUrl,
 } from "@solana/web3.js";
 import { Environment, setEnvironment, getEnvConfig } from './config';
+import {
+  SOLANA_CLUSTER,
+  PHANTOM_CONNECT_URL,
+  PHANTOM_SIGN_TX_URL,
+  ORKI_API,
+  SOLANA_TX_POLL_MAX_ATTEMPTS,
+  SOLANA_TX_POLL_INTERVAL_MS,
+  WALLET_ID,
+} from './constants';
 
 export type WalletType = "phantom" | "metamask" | "coinbase" | "trust" | "binance";
 
@@ -58,11 +67,9 @@ export interface TokenBalance {
 }
 
 export interface TokenInfo {
-  /** Token contract address (EVM) or mint address (Solana). */
+  /** Token mint address (Solana). */
   mint: string;
   decimals: number;
-  /** EVM chain ID — presence signals an EVM transfer; absent means Solana. */
-  chainId?: number;
 }
 
 export class OrkiConnect {
@@ -90,7 +97,7 @@ export class OrkiConnect {
   constructor(options: SDKOptions) {
     this.network = options.network ?? "mainnet";
     setEnvironment(this.network);
-    this.solanaCluster = this.network === "mainnet" ? "mainnet-beta" : "devnet";
+    this.solanaCluster = this.network === "mainnet" ? SOLANA_CLUSTER.MAINNET : SOLANA_CLUSTER.DEVNET;
     this.connection = new Connection(clusterApiUrl(this.solanaCluster));
     this.redirectScheme = options.redirectScheme;
     this.appUrl = options.appUrl || options.redirectScheme;
@@ -101,13 +108,10 @@ export class OrkiConnect {
     this.userId = options.userId ?? null;
   }
 
-  /** Connect to wallet via deep link. Routes to Phantom encrypted flow or generic flow. */
+  /** Connect to Phantom wallet. */
   async connect(wallet: WalletInfo): Promise<string> {
     this.connectedWallet = wallet;
-    if (wallet.id === 'phantom') {
-      return this.connectPhantom();
-    }
-    return this.connectSimple(wallet);
+    return this.connectPhantom();
   }
 
   /** Phantom connect using the official encrypted deep link protocol */
@@ -197,64 +201,13 @@ export class OrkiConnect {
         cluster: this.solanaCluster,
       });
 
-      Linking.openURL(`https://phantom.app/ul/v1/connect?${params.toString()}`).catch((err) => {
+      Linking.openURL(`${PHANTOM_CONNECT_URL}?${params.toString()}`).catch((err) => {
         cleanup();
         reject(err);
       });
     });
   }
 
-  /** Generic connect for non-Phantom wallets via custom scheme deep link */
-  private connectSimple(wallet: WalletInfo): Promise<string> {
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const redirectPrefix = this.redirectScheme.split('://')[0] + '://';
-
-      const cleanup = () => {
-        urlListener.remove();
-        appStateListener.remove();
-      };
-
-      const handleUrl = (urlStr: string) => {
-        if (settled || !urlStr.startsWith(redirectPrefix)) return;
-        settled = true;
-        cleanup();
-        try {
-          const match = urlStr.match(/(?:public_key|address)=([^&]+)/);
-          const pubKey = match ? decodeURIComponent(match[1]) : null;
-          if (pubKey) {
-            this.walletPubKey = pubKey;
-            resolve(pubKey);
-          } else {
-            reject(new Error('Failed to get public key from wallet return URL'));
-          }
-        } catch (e) {
-          reject(new Error('Failed to parse return URL'));
-        }
-      };
-
-      const urlListener = Linking.addEventListener("url", (event) => {
-        handleUrl(event.url || "");
-      });
-
-      const appStateListener = AppState.addEventListener("change", async (state) => {
-        if (state === "active" && !settled) {
-          const url = await Linking.getInitialURL();
-          if (url) handleUrl(url);
-        }
-      });
-
-      const deepLink = wallet.scheme.replace(
-        "{redirect}",
-        encodeURIComponent(this.redirectScheme)
-      );
-
-      Linking.openURL(deepLink).catch((err) => {
-        cleanup();
-        reject(err);
-      });
-    });
-  }
 
   /**
    * Fetch a finalized Solana transaction and return the transferred amount.
@@ -265,13 +218,13 @@ export class OrkiConnect {
   async getTransactionAmount(txid: string, tokenMint?: string): Promise<number> {
     // Poll until the RPC indexes the finalized transaction (avoids stale-blockhash issues)
     let tx: Awaited<ReturnType<typeof this.connection.getParsedTransaction>> = null;
-    for (let attempt = 0; attempt < 10; attempt++) {
+    for (let attempt = 0; attempt < SOLANA_TX_POLL_MAX_ATTEMPTS; attempt++) {
       tx = await this.connection.getParsedTransaction(txid, {
         commitment: 'finalized',
         maxSupportedTransactionVersion: 0,
       });
       if (tx?.meta) break;
-      await new Promise<void>(r => setTimeout(r, 2000));
+      await new Promise<void>(r => setTimeout(r, SOLANA_TX_POLL_INTERVAL_MS));
     }
     if (!tx?.meta) throw new Error(`Transaction ${txid} not found after polling`);
 
@@ -332,28 +285,16 @@ export class OrkiConnect {
   }
 
   /**
-   * Transfer a token from the connected wallet to `recipient`.
-   * - Solana (Phantom): builds + encrypts a SignTransaction deep link, gets txid back.
-   * - EVM wallets: opens an EIP-681 URI in the wallet; resolves when user returns to app.
-   *   Pass `token.chainId` to indicate an EVM transfer.
+   * Transfer a token from the connected Phantom wallet to `recipient`.
    */
   async transferToBank(
     recipient: string,
     amount: number,
     token?: TokenInfo,
     onSigned?: () => void,
-    walletId?: WalletType
   ): Promise<TransactionResult> {
-    // EVM wallets (MetaMask, Coinbase, etc.) don't have a connect step, so walletPubKey
-    // is not set for them. Skip the guard when a chainId is present (EVM path).
-    if (!this.walletPubKey && !token?.chainId) return { error: "Wallet not connected" };
+    if (!this.walletPubKey) return { error: "Wallet not connected" };
 
-    // Route to EVM path when a chainId is supplied
-    if (token?.chainId) {
-      return this.transferEvm(recipient, amount, token as TokenInfo & { chainId: number }, onSigned, walletId);
-    }
-
-    // Solana / Phantom path
     if (!this.sharedSecret || !this.dappKeypair || !this.session || !this.walletPubKey) {
       return { error: "Phantom session not established — please reconnect" };
     }
@@ -502,7 +443,7 @@ export class OrkiConnect {
           payload: bs58.encode(encryptedPayload),
         });
 
-        Linking.openURL(`https://phantom.app/ul/v1/signTransaction?${params.toString()}`).catch((err) => {
+        Linking.openURL(`${PHANTOM_SIGN_TX_URL}?${params.toString()}`).catch((err) => {
           cleanup();
           resolve({ error: String(err) });
         });
@@ -510,48 +451,6 @@ export class OrkiConnect {
     } catch (err) {
       return { error: String(err) };
     }
-  }
-
-  /**
-   * EVM token transfer via EIP-681 URI (ethereum:<contract>@<chainId>/transfer?...).
-   * Opens the connected wallet for the user to sign; resolves when app is foregrounded again.
-   * Note: txid is not available via this deep-link path — use WalletConnect for full receipts.
-   */
-  private transferEvm(
-    recipient: string,
-    amount: number,
-    token: TokenInfo & { chainId: number },
-    onSigned?: () => void,
-    walletId?: WalletType
-  ): Promise<TransactionResult> {
-    const rawAmount = BigInt(Math.round(amount * Math.pow(10, token.decimals))).toString();
-    // Use MetaMask HTTPS deeplink when wallet is MetaMask, EIP-681 otherwise.
-    // Include redirectUrl so MetaMask routes back to the app after signing.
-    const uri = walletId === 'metamask'
-      ? `https://link.metamask.io/send/${token.mint}@${token.chainId}/transfer?address=${recipient}&uint256=${rawAmount}&redirectUrl=${encodeURIComponent(this.redirectScheme)}`
-      : `ethereum:${token.mint}@${token.chainId}/transfer?address=${recipient}&uint256=${rawAmount}`;
-
-    return new Promise((resolve) => {
-      let settled = false;
-
-      const appStateListener = AppState.addEventListener('change', (state) => {
-        if (state === 'active' && !settled) {
-          settled = true;
-          appStateListener.remove();
-          onSigned?.();
-          // EIP-681 deep links have no callback — resolve as submitted once user returns
-          resolve({ txid: 'submitted' });
-        }
-      });
-
-      Linking.openURL(uri).catch((err) => {
-        if (!settled) {
-          settled = true;
-          appStateListener.remove();
-          resolve({ error: String(err) });
-        }
-      });
-    });
   }
 
   /**
@@ -564,7 +463,7 @@ export class OrkiConnect {
     if (!this.userId) throw new Error('[OrkiConnect] userId is required to initialize a session');
     if (!this.depositAddress) throw new Error('[OrkiConnect] depositAddress is required to initialize a session');
 
-    const res = await fetch(`${this.backendUrl}/v1/connect/public/sessions`, {
+    const res = await fetch(`${this.backendUrl}${ORKI_API.SESSIONS}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -594,7 +493,7 @@ export class OrkiConnect {
     if (!this.backendUrl || !this.currentRefreshToken) return false;
 
     try {
-      const res = await fetch(`${this.backendUrl}/v1/connect/sessions/refresh`, {
+      const res = await fetch(`${this.backendUrl}${ORKI_API.SESSION_REFRESH}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: this.currentRefreshToken }),
@@ -605,9 +504,10 @@ export class OrkiConnect {
         return false;
       }
 
-      const data = await res.json() as { session_id: string; session_jwt: string };
+      const data = await res.json() as { session_id: string; session_jwt: string; refresh_token?: string };
       this.currentSessionId = data.session_id;
       this.currentSessionJwt = data.session_jwt;
+      if (data.refresh_token) this.currentRefreshToken = data.refresh_token;
       return true;
     } catch (err) {
       console.warn('[OrkiConnect] Error refreshing session:', err);
@@ -635,7 +535,7 @@ export class OrkiConnect {
     }
 
     try {
-      await fetch(`${this.backendUrl}/v1/connect/sessions/${sid}/transactions`, {
+      await fetch(`${this.backendUrl}${ORKI_API.SESSION_TRANSACTIONS(sid)}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -686,12 +586,8 @@ export class OrkiConnect {
   }
 }
 
-export { OrkiConnectModal } from "./ui/OrkiConnectModal";
-
-export const evm = {
-  mainnet: "mainnet" as Environment,
-  testnet: "testnet" as Environment,
-};
+export { OrkiConnectModal, OrkiConnectModal as OrkiConnectWidget } from "./ui/OrkiConnectModal";
+export type { OrkiConnectModalProps as OrkiConnectWidgetProps } from "./ui/OrkiConnectModal";
 
 export const solana = {
   mainnet:  "mainnet" as Environment,

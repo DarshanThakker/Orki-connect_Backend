@@ -41,8 +41,8 @@ function runConfirmationAsync(params: {
   const { session_id, tx_hash, network, token, user_id, deposit_address, amount } = params;
 
   const poll = async () => {
-    const requiredConfirmations = network === 'SOLANA' ? 32 : getConfirmationThreshold(network);
-    logger.info('Confirmation polling started', { session_id, tx_hash, network, required_confirmations: requiredConfirmations });
+    const confirmations: string = network === 'SOLANA' ? 'finalized' : String(getConfirmationThreshold(network));
+    logger.info('Confirmation polling started', { session_id, tx_hash, network, confirmations });
     try {
       if (network === 'SOLANA') {
         logger.info('Using Solana confirmation path', { session_id, tx_hash });
@@ -55,10 +55,10 @@ function runConfirmationAsync(params: {
       await updateSessionStatus(session_id, SessionStatus.COMPLETED);
       await dispatchWebhookEvent(session_id, 'connect.deposits.confirmed', {
         tx_hash, amount, token, network, user_id, deposit_address,
-        confirmations: requiredConfirmations,
+        confirmations,
       });
 
-      logger.info('Deposit confirmed', { session_id, tx_hash, network, token, amount, confirmations: requiredConfirmations });
+      logger.info('Deposit confirmed', { session_id, tx_hash, network, token, amount, confirmations });
     } catch (err: any) {
       logger.error('Deposit confirmation failed', { session_id, tx_hash, network, error: err.message });
       await updateSessionStatus(session_id, SessionStatus.FAILED).catch(() => {});

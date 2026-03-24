@@ -35,3 +35,7 @@ export async function createOrg(params: {
 export async function updateOrgConfig(organization_id: string, config: Record<string, any>): Promise<Organization> {
   return prisma.organization.update({ where: { organization_id }, data: { config } });
 }
+
+export async function updateOrgWebhookUrl(organization_id: string, webhook_url: string): Promise<void> {
+  await prisma.organization.update({ where: { organization_id }, data: { webhook_url } });
+}

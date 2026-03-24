@@ -5,7 +5,7 @@ const router = Router();
 
 // GET /api/balance/:userId
 router.get('/:userId', (req: Request, res: Response) => {
-  const balance = getBalance(req.params.userId);
+  const balance = getBalance(req.params.userId!);
   if (!balance) {
     res.status(404).json({ error: 'User not found' });
     return;
@@ -15,7 +15,7 @@ router.get('/:userId', (req: Request, res: Response) => {
 
 // GET /api/balance/:userId/transactions
 router.get('/:userId/transactions', (req: Request, res: Response) => {
-  const txs = getTransactions(req.params.userId);
+  const txs = getTransactions(req.params.userId!);
   res.json(txs);
 });
 

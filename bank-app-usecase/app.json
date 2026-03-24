@@ -20,7 +20,24 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.walletmobile"
+      "package": "com.anonymous.walletmobile",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "YOUR_UNIVERSAL_LINK_DOMAIN",
+              "pathPattern": "/.*"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
     },
     "web": {
       "output": "static",

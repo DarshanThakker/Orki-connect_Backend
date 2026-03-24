@@ -37,7 +37,7 @@ export function creditUser(payload: WebhookPayload): { credited: boolean; balanc
     network,
     deposit_address,
     timestamp,
-  });
+  } as any);
 
   console.log("Added idempotency key:", idempotency_key);
   processedKeys.add(idempotency_key);

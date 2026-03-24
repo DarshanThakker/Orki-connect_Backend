@@ -21,15 +21,13 @@ export const SESSION_STATUS = SessionStatus;
 export async function createSession(params: {
   organization_id: string;
   user_id: string;
-  deposit_address: string;
-  evm_deposit_address?: string;
   network: Chain;
   token: string;
   mode?: ComplianceMode;
   kyc_name?: string;
   connection_type?: ConnectionType;
 }) {
-  const { organization_id, user_id, deposit_address, evm_deposit_address, network, token, mode, kyc_name, connection_type } = params;
+  const { organization_id, user_id, network, token, mode, kyc_name, connection_type } = params;
   const orgConfig = await getOrgConfig(organization_id);
 
   const finalMode = mode || orgConfig.compliance_mode;
@@ -44,6 +42,14 @@ export async function createSession(params: {
   if (!orgConfig.supported_tokens.includes(token)) {
     throw Object.assign(new Error(`Token '${token}' is not supported`), { status: 400, code: 'TOKEN_NOT_SUPPORTED' });
   }
+
+  const deposit_address = orgConfig.deposit_addresses?.[network];
+  if (!deposit_address) {
+    throw Object.assign(new Error(`No deposit address configured for network '${network}'`), { status: 400, code: 'DEPOSIT_ADDRESS_NOT_CONFIGURED' });
+  }
+
+  // Provide EVM address alongside when the session is on Solana (so the SDK can show it as an alternative)
+  const evm_deposit_address = network === Chain.SOLANA ? orgConfig.deposit_addresses?.[Chain.ETHEREUM] : undefined;
 
   await registerAddress(`pending_${user_id}`, deposit_address, network);
 

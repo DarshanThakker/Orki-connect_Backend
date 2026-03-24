@@ -5,23 +5,23 @@ import { findOrgByClientId } from '../../../application/org/org.service';
 
 export async function postSession(req: any, res: Response, next: NextFunction) {
   try {
-    const { user_id, deposit_address, evm_deposit_address, network, token, mode, kyc_name, connection_type } = req.body;
-    if (!user_id || !deposit_address || !network || !token) {
-      return res.status(400).json({ error: 'user_id, deposit_address, network, and token are required', code: 'MISSING_REQUIRED_FIELDS' });
+    const { user_id, network, token, mode, kyc_name, connection_type } = req.body;
+    if (!user_id || !network || !token) {
+      return res.status(400).json({ error: 'user_id, network, and token are required', code: 'MISSING_REQUIRED_FIELDS' });
     }
-    res.status(201).json(await createSession({ organization_id: req.org_id, user_id, deposit_address, evm_deposit_address, network, token, mode, kyc_name, connection_type }));
+    res.status(201).json(await createSession({ organization_id: req.org_id, user_id, network, token, mode, kyc_name, connection_type }));
   } catch (err) { next(err); }
 }
 
 export async function postPublicSession(req: Request, res: Response, next: NextFunction) {
   try {
-    const { client_id, user_id, deposit_address, evm_deposit_address, network, token, mode, kyc_name, connection_type } = req.body;
-    if (!client_id || !user_id || !deposit_address || !network || !token) {
-      return res.status(400).json({ error: 'client_id, user_id, deposit_address, network, and token are required', code: 'MISSING_REQUIRED_FIELDS' });
+    const { client_id, user_id, network, token, mode, kyc_name, connection_type } = req.body;
+    if (!client_id || !user_id || !network || !token) {
+      return res.status(400).json({ error: 'client_id, user_id, network, and token are required', code: 'MISSING_REQUIRED_FIELDS' });
     }
     const org = await findOrgByClientId(client_id);
     if (!org) return res.status(401).json({ error: 'Invalid client_id', code: 'UNAUTHORIZED' });
-    res.status(201).json(await createSession({ organization_id: org.organization_id, user_id, deposit_address, evm_deposit_address, network, token, mode, kyc_name, connection_type }));
+    res.status(201).json(await createSession({ organization_id: org.organization_id, user_id, network, token, mode, kyc_name, connection_type }));
   } catch (err) { next(err); }
 }
 

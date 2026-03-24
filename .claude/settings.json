@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"const m = require\\(''''/Users/ayoseun/Documents/GitHub/Fracxn/Orki-connect_Backend/sdk/node_modules/@reown/appkit-react-native''''\\); console.log\\(Object.keys\\(m\\).join\\(''''\\\\n''''\\)\\)\")",
+      "Bash(npx expo:*)"
+    ]
+  }
+}
